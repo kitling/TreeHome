@@ -1,7 +1,7 @@
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-
 #include <3ds.h>
 
 #define hangmacro() (\
@@ -200,7 +200,20 @@ Result APT_LoadSysMenuArg(SysMenuArg* buf)
     ipc[0x40] = size << 14 | 2;
     ipc[0x41] = buf;
     
-    Result ret = aptSendSyncRequest();
+    //Result ret = aptSendSyncRequest(); this was removed from libctru, here is the code
+	Handle aptLockHandle;
+	APT_GetLockHandle(0, &aptLockHandle); //u16 flags, Handle* handle
+	Handle aptuHandle;
+
+	if (aptLockHandle) svcWaitSynchronization(aptLockHandle, U64_MAX);
+	Result ret = aptGetServiceHandle(&aptuHandle);
+	if (R_SUCCEEDED(ret))
+	{
+		ret = svcSendSyncRequest(aptuHandle);
+		svcCloseHandle(aptuHandle);
+	}
+	if (aptLockHandle) svcReleaseMutex(aptLockHandle);
+	
     if(ret < 0) return ret;
     return ipc[1];
 }
@@ -214,7 +227,20 @@ Result APT_StoreSysMenuArg(SysMenuArg* buf)
     ipc[2] = size << 14 | 2;
     ipc[3] = buf;
     
-    Result ret = aptSendSyncRequest();
+    //Result ret = aptSendSyncRequest(); removed from libctru apt.h, so putting it here
+	Handle aptLockHandle;
+	APT_GetLockHandle(0, &aptLockHandle); //u16 flags, Handle* handle
+	Handle aptuHandle;
+
+	if (aptLockHandle) svcWaitSynchronization(aptLockHandle, U64_MAX);
+	Result ret = aptGetServiceHandle(&aptuHandle);
+	if (R_SUCCEEDED(ret))
+	{
+		ret = svcSendSyncRequest(aptuHandle);
+		svcCloseHandle(aptuHandle);
+	}
+	if (aptLockHandle) svcReleaseMutex(aptLockHandle);
+	
     if(ret < 0) return ret;
     return ipc[1];
 }
@@ -230,9 +256,9 @@ void __appInit(void)
     if((res = nsInit()) < 0) ded(res);
     if((res = ptmSysmInit()) < 0) ded(res);
     if((res = psInit()) < 0) ded(res);
-    if((res = aptInit(0x300, 1, 0, 0)) < 0) ded(res);
+    if((res = aptInit() < 0)) ded(res); //previously sent 0x300, 1, 0, 0 as arguments to aptInit
     aptExit();
-    if((res = aptInit(0x103, 0, 3, 2)) < 0) ded(res);
+    if((res = aptInit()) < 0) ded(res); //0x103, 0, 3, 2
 
     if((res = NS_LaunchTitle(0x0004013000001C02, 0, NULL)) < 0) ded(res);//== 0xC8A12402) die();
 

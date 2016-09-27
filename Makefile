@@ -9,7 +9,8 @@ endif
 TOPDIR ?= $(CURDIR)
 include $(DEVKITARM)/3ds_rules
 
-export CTRULIB := $(TOPDIR)/libctru
+# export CTRULIB := $(TOPDIR)/libctru
+export CTRULIB := $(DEVKITPRO)/libctru
 
 #---------------------------------------------------------------------------------
 # TARGET is the name of the output
@@ -32,7 +33,7 @@ TARGET		    :=	$(notdir $(CURDIR))
 BUILD		    :=	build
 SOURCES		    :=	soos
 DATA		    :=	data
-INCLUDES	    :=	inc
+# INCLUDES	    :=	inc
 APP_TITLE       :=  TestMenu
 APP_DESCRIPTION :=  TestMenu
 APP_AUTHOR      :=  MarcusD
@@ -62,7 +63,7 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:= -lctru -lm
+LIBS	:= -lm -lctru
 
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
@@ -86,9 +87,9 @@ export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 
 export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
-CFILES		:=  $(shell find $(SOURCES) -name '*.c' -printf "%P\n")	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CPPFILES	:=  $(shell find $(SOURCES) -name '*.cpp' -printf "%P\n")	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:=  $(shell find $(SOURCES) -name '*.s' -printf "%P\n")	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+CFILES		:=  $(shell find $(SOURCES) -name '*.c' -exec printf "{}\n" \;)	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES	:=  $(shell find $(SOURCES) -name '*.cpp' -exec printf "{}\n" \;)	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+SFILES		:=  $(shell find $(SOURCES) -name '*.s' -exec printf "{}\n" \;)	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
 
 #---------------------------------------------------------------------------------
@@ -136,7 +137,7 @@ all: $(BUILD)
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	@find $(SOURCES) -type d -printf "%P\0" | xargs -0 -I {} mkdir -p $(BUILD)/{}
+	find $(SOURCES) -type d -exec printf "{}\0" | xargs -0 -I {} mkdir -p $(BUILD)/{} \;
 	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 #---------------------------------------------------------------------------------
@@ -161,6 +162,8 @@ endif
 $(OUTPUT).3dsx	:	$(OUTPUT).elf
 
 $(OUTPUT).elf	:	$(OFILES)
+	$(CC) $(CFLAGS) $(LIBPATHS) $(OFILES) -o $(OUTPUT).elf $(LDFLAGS) $(LIBS)
+
 
 $(TOPDIR)/assets/banner.bin: $(TOPDIR)/assets/banner.png $(TOPDIR)/assets/banner.wav
 	@bannertool makebanner -i $(TOPDIR)/assets/banner.png -a $(TOPDIR)/$(TOPDIR)/assets/banner.wav -o $(TOPDIR)/assets/banner.bin
@@ -184,6 +187,12 @@ $(OUTPUT).cia: $(OUTPUT)_stripped.elf $(TOPDIR)/assets/banner.bin $(TOPDIR)/asse
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
+	
+#---------------------------------------------------------------------------------
+# compile our sources
+#---------------------------------------------------------------------------------
+$(SOURCES)/%.o:%.c #Makefile
+	$(CC) $(CFLAGS) -c $< -o $@
 	
 
 # WARNING: This is not the right way to do this! TODO: Do it right!
