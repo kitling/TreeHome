@@ -17,7 +17,7 @@
 
 #define APT_HANDLER_STACKSIZE (0x1000)
 
-static int aptRefCount = 0;
+//static int aptRefCount = 0;
 static int aptLevel = 0;
 static Handle aptLockHandle = 0;
 static Handle aptEvents[3];
@@ -229,14 +229,14 @@ static void aptInitCaptureInfo(aptCaptureBufInfo* capinfo)
 	capinfo->size = main_pixsz * 0x7000 + main_pixsz * 0x19000 + capinfo->top.rightOffset;
 }
 
-Result aptInit(NS_APPID appid, int level, int idk, int attr)
+Result aptInit(NS_APPID appid, int level, int attr, int idk)
 {
 	Result ret=0;
 
 	//if (AtomicPostIncrement(&aptRefCount)) return 1;
 	if(aptLockHandle) return 0xE0A0CFF9;
 	
-	aptLevel = level > 1 ? level : 1;
+	aptLevel = level;
 
 	// Retrieve APT lock
 	ret = APT_GetLockHandleO(0x0, &aptLockHandle, &aptattr, &aptpos);
@@ -244,15 +244,13 @@ Result aptInit(NS_APPID appid, int level, int idk, int attr)
 	//if (aptIsCrippled()) return 2;
 
 	aptappid = appid;
-	aptLevel = level;
 
 	APT_SetPowerButtonState(aptattr & 1);
 	APT_SetOrderToClose((aptattr & 2) >> 1);
 
 	// Initialize APT
-	if(attr == 0xFFFFFFFF) attr = aptattr;//aptMakeAppletAttr(APTPOS_APP, false, false);
-	if(idk & 2) attr |= 0x20000000;
-	ret = APT_Initialize(aptappid, attr, &aptEvents[1], &aptEvents[2]);
+	if(attr != 0xFFFFFFFF) aptattr = attr;//aptMakeAppletAttr(APTPOS_APP, false, false);
+	ret = APT_Initialize(aptappid, aptattr, &aptEvents[1], &aptEvents[2]);
 	if (R_FAILED(ret)) goto _fail2;
 
 	if(idk & 1)
@@ -270,7 +268,7 @@ Result aptInit(NS_APPID appid, int level, int idk, int attr)
 	LightEvent_Init(&aptSleepEvent, RESET_ONESHOT);
 
 	// Create APT event handler thread
-	aptEventHandlerThread = threadCreate(aptEventHandler, 0x0, APT_HANDLER_STACKSIZE, /*0x31*/ 0xF, -2, true);
+	aptEventHandlerThread = threadCreate(aptEventHandler, 0x0, APT_HANDLER_STACKSIZE, 0x31 /*0xF*/, -2, true);
 	if (!aptEventHandlerThread) goto _fail4;
 
 	// Special handling for aptReinit (aka hax)
@@ -306,7 +304,8 @@ _fail3:
 _fail2:
 	svcCloseHandle(aptLockHandle);
 _fail:
-	AtomicDecrement(&aptRefCount);
+	aptLockHandle = 0;
+	//AtomicDecrement(&aptRefCount);
 	return ret;
 }
 

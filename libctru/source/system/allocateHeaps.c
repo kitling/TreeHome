@@ -15,16 +15,18 @@ void __attribute__((weak)) __system_allocateHeaps(void) {
 	u32 tmp=0;
 
 	// Distribute available memory into halves, aligning to page size.
-	//u32 size = (osGetMemRegionFree(MEMREGION_SYSTEM) / 2) & 0xFFFFF000;
-	__ctru_heap_size = 0x800000;//size;
-	__ctru_linear_heap_size = 0x800000; // 
+	u32 size = (osGetMemRegionFree(MEMREGION_SYSTEM) / 2) & 0xFFFFF000;
+	__ctru_heap_size = size;
+	__ctru_linear_heap_size = size; 
 
 	//*(u32*)0x00100998 = size;
 
 
 	// Allocate the application heap
+	//__ctru_heap = 0x10000000;
 	__ctru_heap = 0x08000000;
 	svcControlMemory(&tmp, __ctru_heap, 0x0, __ctru_heap_size, MEMOP_ALLOC, MEMPERM_READ | MEMPERM_WRITE);
+	//svcControlMemory(&__ctru_heap, 0x08000000, 0x0, __ctru_heap_size, MEMOP_ALLOC, MEMPERM_READ | MEMPERM_WRITE);
 
 	// Allocate the linear heap
 	//__ctru_linear_heap = 0x18000000;

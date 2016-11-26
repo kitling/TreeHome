@@ -135,7 +135,7 @@ typedef struct tag_aptHookCookie
 typedef void (*aptMessageCb)(void* user, NS_APPID sender, void* msg, size_t msgsize);
 
 /// Initializes APT.
-Result aptInit(NS_APPID appid, int level, int idk, int attr);
+Result aptInit(NS_APPID appid, int level, int attr, int idk);
 
 /// Exits APT.
 void aptExit(void);

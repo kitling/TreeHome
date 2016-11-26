@@ -18,8 +18,8 @@
     }\
 })
 
-
-#define ded(wat) *((u32*)0x00100000)=wat;
+#define err(nth, wat) *((u32*)0x00100000+(nth))=wat;
+#define ded(wat) err(0,wat)
 #define die() ded(0xDEADBEEF);
 
 
@@ -42,6 +42,21 @@ typedef struct
 } SysMenuArg;
 
 SysMenuArg menuarg;
+
+typedef enum
+{
+    MS_NONE,
+    MS_IDLE,
+    MS_LOADING1,
+    MS_LOADING2,
+    MS_APP_PAUSE,
+    MS_APP_CLOSE,
+    MS_CLEANING,
+    MS_FIRST,
+    MS_SCREENCAP
+} MenuState;
+
+MenuState ms = MS_NONE;
 
 static Handle srvSemaphore = 0;
 static Thread srvThread = 0;
@@ -197,8 +212,9 @@ Result APT_LoadSysMenuArg(SysMenuArg* buf)
     ipc[0] = 0x360040;
     ipc[1] = size;
     
-    ipc[0x40] = size << 14 | 2;
-    ipc[0x41] = buf;
+    u32* ip2 = ((u8*)ipc) + 0x100;
+    ip2[0] = (size << 14) | 2;
+    ip2[1] = buf;
     
     Result ret = aptSendSyncRequest();
     if(ret < 0) return ret;
@@ -209,9 +225,9 @@ Result APT_StoreSysMenuArg(SysMenuArg* buf)
 {
     u32 size = 0x40;
     u32* ipc = getThreadCommandBuffer();
-    ipc[0] = 0x370040;
+    ipc[0] = 0x370042;
     ipc[1] = size;
-    ipc[2] = size << 14 | 2;
+    ipc[2] = (size << 14) | 2;
     ipc[3] = buf;
     
     Result ret = aptSendSyncRequest();
@@ -222,28 +238,28 @@ Result APT_StoreSysMenuArg(SysMenuArg* buf)
 void __appInit(void)
 {
     Result res = 0;
-    if((res = srvInit()) < 0) ded(res);
+    if((res = srvInit()) < 0) err(0xFF,res);
     RecursiveLock_Init(&srvLockHandle);
     //if((res = srvEnableNotification(&srvSemaphore)) < 0) ded(res);
     //srvThread = threadCreate(srvMainLoop, &doit, 0x1000, 0x18, -2, 0);
     
-    if((res = nsInit()) < 0) ded(res);
-    if((res = ptmSysmInit()) < 0) ded(res);
-    if((res = psInit()) < 0) ded(res);
-    if((res = aptInit(0x300, 1, 0, 0)) < 0) ded(res);
-    aptExit();
-    if((res = aptInit(0x103, 0, 3, 2)) < 0) ded(res);
+    if((res = nsInit()) < 0) err(1,res);
+    if((res = ptmSysmInit()) < 0) err(2,res);
+    if((res = psInit()) < 0) err(3,res);
+    //if((res = aptInit(0x300, 1, 0, 0)) < 0) err(4,res);
+    //aptExit();
+    if((res = aptInit(0x103, 0, 2 | 0x20000000, 1)) < 0) err(5,res);
 
-    if((res = NS_LaunchTitle(0x0004013000001C02, 0, NULL)) < 0) ded(res);//== 0xC8A12402) die();
+    if((res = NS_LaunchTitle(0x0004013000001C02, 0, NULL)) < 0) err(10,res);//== 0xC8A12402) die();
 
     //if((res = gspInit()) < 0) ded(res);
     //GSPGPU_SetLcdForceBlack(0);
     //GSPGPU_AcquireRight(0);
 
-    if((res = NS_LaunchTitle(0x0004013000001802, 0, NULL)) < 0) ded(res);//== 0xC8A12402) die();
-    if((res = NS_LaunchTitle(0x0004013000001D02, 0, NULL)) < 0) ded(res);//== 0xC8A12402) die();
-    if((res = NS_LaunchTitle(0x0004013000001A02, 0, NULL)) < 0) ded(res);//== 0xC8A12402) die();
-    if((res = NS_LaunchTitle(0x0004013000001502, 0, NULL)) < 0) ded(res);//== 0xC8A12402) die();
+    if((res = NS_LaunchTitle(0x0004013000001802, 0, NULL)) < 0) err(11,res);//== 0xC8A12402) die();
+    if((res = NS_LaunchTitle(0x0004013000001D02, 0, NULL)) < 0) err(12,res);//== 0xC8A12402) die();
+    if((res = NS_LaunchTitle(0x0004013000001A02, 0, NULL)) < 0) err(13,res);//== 0xC8A12402) die();
+    if((res = NS_LaunchTitle(0x0004013000001502, 0, NULL)) < 0) err(14,res);//== 0xC8A12402) die();
 
     hidInit();
     
@@ -271,8 +287,11 @@ void __appExit(void)
 
 int main()
 {
+  Result res = 0;
   // =====[PROGINIT]=====
   
+  //extern u32 __ctru_linear_heap;
+  //*(u32*)0x00100099 =  __ctru_linear_heap;
   gfxInit(GSP_RGBA8_OES, GSP_RGBA8_OES, false);
   //die();
   //extern u32 __ctru_linear_heap;
@@ -281,16 +300,20 @@ int main()
   
   puts("Initializing SysMenu stuff");
   
-  memset(&menuarg, 0, sizeof(menuarg));
+  //res = APT_LoadSysMenuArg(&menuarg);
+  printf("LoadSysMenuArg: %08X\n", res);
   
-  /*
-  if(APT_LoadSysMenuArg(&menuarg) < 0)
+  if(res < 0)
   {
-      
-  }*/
-  
-  //puts("Storing SysArg");
-  //APT_StoreSysMenuArg(&menuarg);
+      memset(&menuarg, 0, sizeof(menuarg));
+  }
+  else
+  {
+      SysMenuArg dummy;
+      memset(&dummy, 0, 0x40);
+      //res = APT_StoreSysMenuArg(&dummy);
+      printf("StoreSysMenuArg: %08X\n", res);
+  }
   
   puts("wat");
 
@@ -361,7 +384,7 @@ int main()
         
         puts("PrepareToStartApp");
         //res = APT_PrepareToStartApplication(0x000400000F800100L, MEDIATYPE_SD, 1);
-        res = APT_PrepareToStartApplication(0x0004000000030700L, MEDIATYPE_SD, 0);
+        res = APT_PrepareToStartApplication(0, MEDIATYPE_GAME_CARD, 0);
         if(res < 0)
         {
             printf("Fail %08X\n", res);
@@ -377,7 +400,7 @@ int main()
             puts("Looping");
             do
             {
-                res = APT_StartApplication(/*param*/ 0, sizeof(param), /*hmac*/ 0, sizeof(hmac), 0);
+                res = APT_StartApplication(0, 0, 0, 0, 0);
                 printf("Result %08X\n", res);
             }
             while(res == 0xC8A0CFF0 || res == 0xE0A0CC08 || res == 0xC8A0CC02);
@@ -387,7 +410,8 @@ int main()
     
     if(kDown & KEY_B)
     {
-        NS_LaunchTitle(0, 0, NULL);
+        u32 __dummy = 0;
+        NS_LaunchTitle(0, 0, &__dummy);
     }
     
     fbBottom[seed++] = 0xF00FCACE;
