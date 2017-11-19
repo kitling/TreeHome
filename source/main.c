@@ -38,14 +38,17 @@ typedef struct
 
 typedef struct
 {
-    u32 arg[0x10];
+    u32 type;
+    u32 appletUID;
+    u64 titlePID;
+    u32 unk[0xC];
 } SysMenuArg;
 
 SysMenuArg menuarg;
 
 static Handle srvSemaphore = 0;
 static Thread srvThread = 0;
-static SignalHook srvRootHook;
+static SignalHook srvRootHook; // Unassigned to?
 
 static SignalHook aptRootHook;
 
@@ -88,7 +91,7 @@ void srvMainLoop(void* param)
         if(ret < 0) break;
         ret = srvReceiveNotification(&NotificationID);
         if(ret < 0) break;
-        
+
         srvLock();
         SignalHook* curr = srvRootHook.next;
         while(curr)
@@ -99,26 +102,6 @@ void srvMainLoop(void* param)
         srvUnlock();
     }
     if(*running) *(u32*)0x00100100 = ret;
-}
-
-Result nwmInit()
-{
-    return srvGetServiceHandle(&nwmHandle, "nwm::EXT");
-}
-
-Result nwmDisable(u8 flag)
-{
-    u32* ipc = getThreadCommandBuffer();
-    ipc[0] = 0x80040;
-    ipc[1] = flag != 0;
-    Result ret = svcSendSyncRequest(nwmHandle);
-    if(ret < 0) return ret;
-    return ipc[1];
-}
-
-Result nwmExit()
-{
-    return svcCloseHandle(nwmHandle);
 }
 
 void aptHookSignal(u32 nid, SignalHandler func)
@@ -192,57 +175,34 @@ Result APT_StartApplication(u8* param, size_t sizeofparam, u8* hmac, size_t size
 
 Result APT_LoadSysMenuArg(SysMenuArg* buf)
 {
-    u32 size = 0x40;//sizeof(SysMenuArg);
-    u32* ipc = getThreadCommandBuffer();
-    ipc[0] = 0x360040;
-    ipc[1] = size;
-    
-    ipc[0x40] = size << 14 | 2;
-    ipc[0x41] = buf;
-    
-    //Result ret = aptSendSyncRequest(); this was removed from libctru, here is the code
-	Handle aptLockHandle;
-	APT_GetLockHandle(0, &aptLockHandle); //u16 flags, Handle* handle
-	Handle aptuHandle;
+    u32 cmdbuf[16] = {0};
+    cmdbuf[0] = 0x360040; // TODO: Use IPC_MakeHeader
+    cmdbuf[1] = sizeof(SysMenuArg);
 
-	if (aptLockHandle) svcWaitSynchronization(aptLockHandle, U64_MAX);
-	Result ret = aptGetServiceHandle(&aptuHandle);
-	if (R_SUCCEEDED(ret))
-	{
-		ret = svcSendSyncRequest(aptuHandle);
-		svcCloseHandle(aptuHandle);
-	}
-	if (aptLockHandle) svcReleaseMutex(aptLockHandle);
-	
-    if(ret < 0) return ret;
-    return ipc[1];
+    u32 saved_threadstorage[2];
+    u32* staticbufs = getThreadStaticBuffers();
+    saved_threadstorage[0]=staticbufs[0];
+    saved_threadstorage[1]=staticbufs[1];
+    staticbufs[0] = IPC_Desc_StaticBuffer(cmdbuf[1], 0);
+    staticbufs[1] = buf;
+
+    Result ret = aptSendCommand(cmdbuf);
+    staticbufs[0] = saved_threadstorage[0];
+    staticbufs[1] = saved_threadstorage[1];
+
+    return R_SUCCEEDED(ret) ? cmdbuf[1] : ret;
 }
 
 Result APT_StoreSysMenuArg(SysMenuArg* buf)
 {
-    u32 size = 0x40;
-    u32* ipc = getThreadCommandBuffer();
-    ipc[0] = 0x370040;
-    ipc[1] = size;
-    ipc[2] = size << 14 | 2;
-    ipc[3] = buf;
-    
-    //Result ret = aptSendSyncRequest(); removed from libctru apt.h, so putting it here
-	Handle aptLockHandle;
-	APT_GetLockHandle(0, &aptLockHandle); //u16 flags, Handle* handle
-	Handle aptuHandle;
+    u32 cmdbuf[16] = {0};
+    cmdbuf[0] = 0x370042; // TODO: Use IPC_MakeHeader
+    cmdbuf[1] = sizeof(SysMenuArg);
+    cmdbuf[2] = IPC_Desc_StaticBuffer(cmdbuf[1], 0);
+    cmdbuf[3] = buf;
 
-	if (aptLockHandle) svcWaitSynchronization(aptLockHandle, U64_MAX);
-	Result ret = aptGetServiceHandle(&aptuHandle);
-	if (R_SUCCEEDED(ret))
-	{
-		ret = svcSendSyncRequest(aptuHandle);
-		svcCloseHandle(aptuHandle);
-	}
-	if (aptLockHandle) svcReleaseMutex(aptLockHandle);
-	
-    if(ret < 0) return ret;
-    return ipc[1];
+    Result ret = aptSendCommand(cmdbuf);
+    return R_SUCCEEDED(ret) ? cmdbuf[1] : ret;
 }
 
 void __appInit(void)
@@ -252,7 +212,7 @@ void __appInit(void)
     RecursiveLock_Init(&srvLockHandle);
     //if((res = srvEnableNotification(&srvSemaphore)) < 0) ded(res);
     //srvThread = threadCreate(srvMainLoop, &doit, 0x1000, 0x18, -2, 0);
-    
+
     if((res = nsInit()) < 0) ded(res);
     if((res = ptmSysmInit()) < 0) ded(res);
     if((res = psInit()) < 0) ded(res);
@@ -272,7 +232,7 @@ void __appInit(void)
     if((res = NS_LaunchTitle(0x0004013000001502, 0, NULL)) < 0) ded(res);//== 0xC8A12402) die();
 
     hidInit();
-    
+
     fsInit();
     sdmcInit();
 }
@@ -298,76 +258,76 @@ void __appExit(void)
 int main()
 {
   // =====[PROGINIT]=====
-  
+
   gfxInit(GSP_RGBA8_OES, GSP_RGBA8_OES, false);
   //die();
   //extern u32 __ctru_linear_heap;
   //*(u32*)0x00100099 =  __ctru_linear_heap;
   consoleInit(GFX_BOTTOM, NULL);
-  
+
   puts("Initializing SysMenu stuff");
-  
+
   memset(&menuarg, 0, sizeof(menuarg));
-  
+
   /*
   if(APT_LoadSysMenuArg(&menuarg) < 0)
   {
-      
+
   }*/
-  
+
   //puts("Storing SysArg");
   //APT_StoreSysMenuArg(&menuarg);
-  
+
   puts("wat");
 
   // =====[VARS]=====
-  
+
   u32 kDown;
   u32 kHeld;
   u32* fbBottom = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, NULL, NULL);
   u16 seed = 0;
-  
+
   // =====[PREINIT]=====
-  
+
   gspWaitForVBlank();
   gspWaitForVBlank();
   gspWaitForVBlank();
 
-  
+
   //puts("Initializing nwm");
-  //Result ret = nwmInit();
+  //Result ret = nwmExtInit();
   //printf("NWM::Init %08X\n", ret);
   //puts("Initializing WiFi");
-  //ret = nwmDisable(0);
+  //ret = NWMEXT_ControlWirelessEnabled(true);
   //printf("NWM::Disable %08X\n", ret);
-  
+
   // =====[RUN]=====
-  
+
   while (aptMainLoop())
   {
     hidScanInput();
     kDown = hidKeysDown();
     kHeld = hidKeysHeld();
-    
+
     if (kHeld & KEY_SELECT)
     {
         *(u32*)0x00106800 = 0xDEADCAFE;
         break;
     }
-    
+
     if(kDown & KEY_START)
     {
         Result res = 0;
         //u8 tst = 0;
-        
+
         //puts("GetProgramIdOnAppJump");
-        
+
         //u64 launchwat = 0;
         //FS_MediaType wattype = 0;
-        
+
         //res = APT_GetProgramIdOnApplicationJump(NULL, NULL, &launchwat, &wattype);
         //printf("Result %08X %016LLX %i\n", res, launchwat, wattype);
-        
+
         /*
         puts("CheckApp");
         res = APT_IsRegistered(0x400, &tst);
@@ -384,7 +344,7 @@ int main()
                 printf("CancelLibraryApplet result %08X\n", res);
             }
         }*/
-        
+
         puts("PrepareToStartApp");
         //res = APT_PrepareToStartApplication(0x000400000F800100L, MEDIATYPE_SD, 1);
         res = APT_PrepareToStartApplication(0x0004000000030700L, MEDIATYPE_SD, 0);
@@ -396,10 +356,10 @@ int main()
         {
             u8 hmac[0x20];
             u8 param[0x300];
-            
+
             //memset(hmac, 0, sizeof(hmac));
             //memset(param, 0, sizeof(param));
-            
+
             puts("Looping");
             do
             {
@@ -410,25 +370,26 @@ int main()
             puts("Loop ended");
         }
     }
-    
+
     if(kDown & KEY_B)
     {
         NS_LaunchTitle(0, 0, NULL);
     }
-    
+
     fbBottom[seed++] = 0xF00FCACE;
-    
+
     //TODO implement
-    
+
     gfxFlushBuffers();
     //gfxSwapBuffers();
     gspWaitForVBlank();
   }
 
   // =====[END]=====
-  
+
   killswitch:
-  
+
+  // nwmExtExit();
   gfxExit();
 
   return 0;

@@ -31,7 +31,7 @@ export CTRULIB := $(DEVKITPRO)/libctru
 #---------------------------------------------------------------------------------
 TARGET		    :=	$(notdir $(CURDIR))
 BUILD		    :=	build
-SOURCES		    :=	soos
+SOURCES		    :=	source
 DATA		    :=	data
 # INCLUDES	    :=	inc
 APP_TITLE       :=  TestMenu
@@ -41,11 +41,11 @@ APP_PRODUCT_CODE:=  CTR-P-CTAP
 APP_UNIQUE_ID   :=  0x81
 ICON            :=  assets/logo.png
 
-APP_TITLE       :=  $(shell echo "$(APP_TITLE)" | cut -c1-128)
-APP_DESCRIPTION :=  $(shell echo "$(APP_DESCRIPTION)" | cut -c1-256)
-APP_AUTHOR      :=  $(shell echo "$(APP_AUTHOR)" | cut -c1-128)
-APP_PRODUCT_CODE:=  $(shell echo $(APP_PRODUCT_CODE) | cut -c1-16)
-APP_UNIQUE_ID   :=  $(shell echo $(APP_UNIQUE_ID) | cut -c1-7)
+# APP_TITLE       :=  $(shell echo "$(APP_TITLE)" | cut -c1-128)
+# APP_DESCRIPTION :=  $(shell echo "$(APP_DESCRIPTION)" | cut -c1-256)
+# APP_AUTHOR      :=  $(shell echo "$(APP_AUTHOR)" | cut -c1-128)
+# APP_PRODUCT_CODE:=  $(shell echo $(APP_PRODUCT_CODE) | cut -c1-16)
+# APP_UNIQUE_ID   :=  $(shell echo $(APP_UNIQUE_ID) | cut -c1-7)
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -87,9 +87,9 @@ export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 
 export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
-CFILES		:=  $(shell find $(SOURCES) -name '*.c' -exec printf "{}\n" \;)	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CPPFILES	:=  $(shell find $(SOURCES) -name '*.cpp' -exec printf "{}\n" \;)	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:=  $(shell find $(SOURCES) -name '*.s' -exec printf "{}\n" \;)	#$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+CFILES		:=  $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES	:=  $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+SFILES		:=  $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
 BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
 
 #---------------------------------------------------------------------------------
@@ -115,7 +115,7 @@ export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)/include) \
 			-I-$(CURDIR)/$(SOURCES)
 
 export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib) \
-			$(foreach dir,$(INCLUDES),-L$(CURDIR)/$(dir)/lib) 
+			$(foreach dir,$(INCLUDES),-L$(CURDIR)/$(dir)/lib)
 
 ifeq ($(strip $(ICON)),)
 	icons := $(wildcard *.png)
@@ -137,7 +137,6 @@ all: $(BUILD)
 
 $(BUILD):
 	@[ -d $@ ] || mkdir -p $@
-	find $(SOURCES) -type d -exec printf "{}\0" | xargs -0 -I {} mkdir -p $(BUILD)/{} \;
 	@make --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 #---------------------------------------------------------------------------------
@@ -157,7 +156,7 @@ DEPENDS	:=	$(OFILES:.o=.d)
 ifeq ($(strip $(NO_SMDH)),)
 .PHONY: all
 all	:	$(OUTPUT).3dsx $(OUTPUT).smdh $(OUTPUT).cia
-endif 
+endif
 
 $(OUTPUT).3dsx	:	$(OUTPUT).elf
 
@@ -166,7 +165,7 @@ $(OUTPUT).elf	:	$(OFILES)
 
 
 $(TOPDIR)/assets/banner.bin: $(TOPDIR)/assets/banner.png $(TOPDIR)/assets/banner.wav
-	@bannertool makebanner -i $(TOPDIR)/assets/banner.png -a $(TOPDIR)/$(TOPDIR)/assets/banner.wav -o $(TOPDIR)/assets/banner.bin
+	@bannertool makebanner -i $(TOPDIR)/assets/banner.png -a $(TOPDIR)/assets/banner.wav -o $(TOPDIR)/assets/banner.bin
 
 $(TOPDIR)/assets/image.bin: $(TOPDIR)/assets/logo.png
 	@bannertool makesmdh -s "$(APP_TITLE)" -l "$(APP_DESCRIPTION)" -p "$(APP_AUTHOR)" -i $(TOPDIR)/assets/logo.png -o $(TOPDIR)/assets/image.bin
@@ -187,13 +186,13 @@ $(OUTPUT).cia: $(OUTPUT)_stripped.elf $(TOPDIR)/assets/banner.bin $(TOPDIR)/asse
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)
-	
+
 #---------------------------------------------------------------------------------
 # compile our sources
 #---------------------------------------------------------------------------------
 $(SOURCES)/%.o:%.c #Makefile
 	$(CC) $(CFLAGS) -c $< -o $@
-	
+
 
 # WARNING: This is not the right way to do this! TODO: Do it right!
 #---------------------------------------------------------------------------------

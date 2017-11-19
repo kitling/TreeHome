@@ -35,6 +35,6 @@
 /.cproject
 /.project
 /.settings/
-/libctru_guud/
-/libctru_guud__/
-/RE/
+
+TreeHome*
+assets/banner.bin
