@@ -135,7 +135,8 @@ typedef struct tag_aptHookCookie
 typedef void (*aptMessageCb)(void* user, NS_APPID sender, void* msg, size_t msgsize);
 
 /// Initializes APT.
-Result aptInit(NS_APPID appid, int level, int attr, int idk);
+Result aptInit(void);
+Result aptInitApplet(int level, int attr, int idk);
 
 /// Exits APT.
 void aptExit(void);
@@ -145,8 +146,6 @@ void aptExit(void);
  * @param aptcmdbuf Pointer to command buffer (should have capacity for at least 16 words).
  */
 Result aptSendCommand(u32* aptcmdbuf);
-
-Result aptSendSyncRequest();
 
 /**
  * @brief Gets whether to allow the system to enter sleep mode.
@@ -198,20 +197,19 @@ void aptSetMessageCallback(aptMessageCb callback, void* user);
 bool aptLaunchLibraryApplet(NS_APPID appId, void* buf, size_t bufsize, Handle handle);
 
 /**
+ * @brief Sets the chainloader target.
+ * @param programID ID of the program to chainload to.
+ * @param mediatype Media type of the program to chainload to.
+ */
+void aptSetChainloader(u64 programID, u8 mediatype);
+
+/**
  * @brief Gets an APT lock handle.
  * @param flags Flags to use.
  * @param lockHandle Pointer to output the lock handle to.
  */
 Result APT_GetLockHandle(u16 flags, Handle* lockHandle);
-
 Result APT_GetLockHandleO(u16 flags, Handle* lockHandle, APT_AppletAttr* attr, APT_AppletPos* state);
-
-void APT_SetPowerButtonState(u8 state);
-void APT_SetHomeButtonState(u8 state);
-void APT_SetOrderToClose(u8 state);
-u8 APT_GetPowerButtonState();
-u8 APT_GetHomeButtonState();
-u8 APT_GetOrderToClose();
 
 /**
  * @brief Initializes an application's registration with APT.
@@ -508,3 +506,13 @@ Result APT_StartSystemApplet(NS_APPID appID, const void* param, size_t paramSize
  * @brief mapAddr Pointer to write the mapping address of the system font memory block to.
  */
 Result APT_GetSharedFont(Handle* fontHandle, u32* mapAddr);
+
+/**
+ * @brief Receives the deliver (launch) argument
+ * @param param Parameter buffer.
+ * @param paramSize Size of parameter buffer.
+ * @param hmac HMAC buffer (should be 0x20 bytes long).
+ * @param sender Pointer to output the sender's AppID to.
+ * @param received Pointer to output whether an argument was received to.
+ */
+Result APT_ReceiveDeliverArg(const void* param, size_t paramSize, const void* hmac, u64* sender, bool* received);

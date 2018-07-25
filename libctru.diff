@@ -1,0 +1,509 @@
+diff -rub ctrulib/libctru/include/3ds/services/apt.h TreeHome/libctru/include/3ds/services/apt.h
+--- ctrulib/libctru/include/3ds/services/apt.h	2018-07-24 18:35:55.957407495 -0700
++++ TreeHome/libctru/include/3ds/services/apt.h	2018-07-24 17:34:10.128763996 -0700
+@@ -135,7 +135,7 @@
+ typedef void (*aptMessageCb)(void* user, NS_APPID sender, void* msg, size_t msgsize);
+
+ /// Initializes APT.
+-Result aptInit(void);
++Result aptInit(NS_APPID appid, int level, int attr, int idk);
+
+ /// Exits APT.
+ void aptExit(void);
+@@ -146,6 +146,8 @@
+  */
+ Result aptSendCommand(u32* aptcmdbuf);
+
++Result aptSendSyncRequest();
++
+ /**
+  * @brief Gets whether to allow the system to enter sleep mode.
+  * @return Whether sleep mode is allowed.
+@@ -202,6 +204,15 @@
+  */
+ Result APT_GetLockHandle(u16 flags, Handle* lockHandle);
+
++Result APT_GetLockHandleO(u16 flags, Handle* lockHandle, APT_AppletAttr* attr, APT_AppletPos* state);
++
++void APT_SetPowerButtonState(u8 state);
++void APT_SetHomeButtonState(u8 state);
++void APT_SetOrderToClose(u8 state);
++u8 APT_GetPowerButtonState();
++u8 APT_GetHomeButtonState();
++u8 APT_GetOrderToClose();
++
+ /**
+  * @brief Initializes an application's registration with APT.
+  * @param appId ID of the application.
+Only in ctrulib/libctru/: libctru-1.1.0.tar.bz2
+Only in ctrulib/libctru/: libctru-1.2.0.tar.bz2
+Only in ctrulib/libctru/: libctru-1.2.1.tar.bz2
+diff -rub ctrulib/libctru/Makefile TreeHome/libctru/Makefile
+--- ctrulib/libctru/Makefile	2018-07-24 18:35:55.930743036 -0700
++++ TreeHome/libctru/Makefile	2018-07-24 18:12:55.117834518 -0700
+@@ -43,12 +43,12 @@
+ #---------------------------------------------------------------------------------
+ ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+
+-CFLAGS	:=	-g -Wall -Werror -O2 -mword-relocations \
++CFLAGS	:=	-g -Wall -O0 -mword-relocations \
+ 			-ffunction-sections -fno-strict-aliasing \
+ 			-fomit-frame-pointer \
+ 			$(ARCH)
+
+-CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS
++CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS -D_XOPEN_SOURCE=600 -D_POSIX_SOURCE=1 -D_POSIX_C_SOURCE=200809L -D_BSD_SOURCE
+
+ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+
+Only in TreeHome/libctru/: Makefile~
+Only in TreeHome/libctru/: .Makefile.un~
+diff -rub ctrulib/libctru/source/romfs_dev.c TreeHome/libctru/source/romfs_dev.c
+--- ctrulib/libctru/source/romfs_dev.c	2018-07-24 18:35:55.970739726 -0700
++++ TreeHome/libctru/source/romfs_dev.c	2018-07-24 18:11:28.873155219 -0700
+@@ -6,6 +6,7 @@
+ #include <sys/dirent.h>
+ #include <sys/iosupport.h>
+ #include <sys/param.h>
++#include <sys/time.h>
+ #include <unistd.h>
+
+ #include <3ds/types.h>
+Only in TreeHome/libctru/source: romfs_dev.c~
+Only in TreeHome/libctru/source: .romfs_dev.c.un~
+diff -rub ctrulib/libctru/source/services/apt.c TreeHome/libctru/source/services/apt.c
+--- ctrulib/libctru/source/services/apt.c	2018-07-24 18:35:55.970739726 -0700
++++ TreeHome/libctru/source/services/apt.c	2018-07-24 17:34:10.135430515 -0700
+@@ -17,8 +17,9 @@
+
+ #define APT_HANDLER_STACKSIZE (0x1000)
+
+-static int aptRefCount = 0;
+-static Handle aptLockHandle;
++//static int aptRefCount = 0;
++static int aptLevel = 0;
++static Handle aptLockHandle = 0;
+ static Handle aptEvents[3];
+ static LightEvent aptSleepEvent;
+ static Thread aptEventHandlerThread;
+@@ -40,6 +41,12 @@
+ };
+
+ static u8 aptHomeButtonState;
++static u8 aptPowerButtonState;
++static u8 aptOrderToClose;
++static APT_AppletAttr aptattr;
++static APT_AppletPos aptpos;
++static NS_APPID aptappid;
++
+ static u32 aptFlags = FLAG_ALLOWSLEEP;
+ static u32 aptParameters[0x1000/4];
+
+@@ -79,22 +86,52 @@
+ 	return (envGetSystemRunFlags() & RUNFLAG_APTWORKAROUND) != 0 && !aptIsReinit();
+ }
+
+-static Result aptGetServiceHandle(Handle* aptuHandle)
++void APT_SetPowerButtonState(u8 state)
++{
++	aptPowerButtonState = state;
++}
++
++void APT_SetHomeButtonState(u8 state)
++{
++	aptHomeButtonState = state;
++}
++
++void APT_SetOrderToClose(u8 state)
++{
++	aptOrderToClose = state;
++}
++
++u8 APT_GetPowerButtonState()
++{
++	return aptPowerButtonState;
++}
++
++u8 APT_GetHomeButtonState()
++{
++	return aptHomeButtonState;
++}
++
++u8 APT_GetOrderToClose()
++{
++	return aptOrderToClose;
++}
++
++static Result aptGetServiceHandleLevel(Handle* he, int start)
+ {
+-	static const char* serviceName;
++	//static const char* serviceName;
+ 	static const char* const serviceNameTable[3] = {"APT:S", "APT:A", "APT:U"};
+
+-	if (serviceName)
+-		return srvGetServiceHandleDirect(aptuHandle, serviceName);
++	//if (serviceName)
++	//	return srvGetServiceHandleDirect(he, serviceName);
+
+-	Result ret;
++	Result ret = -1;
+ 	int i;
+-	for (i = 0; i < 3; i ++)
++	for (i = start; i < 3; i ++)
+ 	{
+-		ret = srvGetServiceHandleDirect(aptuHandle, serviceNameTable[i]);
++		ret = srvGetServiceHandleDirect(he, serviceNameTable[i]);
+ 		if (R_SUCCEEDED(ret))
+ 		{
+-			serviceName = serviceNameTable[i];
++			//serviceName = serviceNameTable[i];
+ 			break;
+ 		}
+ 	}
+@@ -102,6 +139,11 @@
+ 	return ret;
+ }
+
++static Result aptGetServiceHandle(Handle* he)
++{
++    return aptGetServiceHandleLevel(he, aptLevel);
++}
++
+ static inline int countPrmWords(u32 hdr)
+ {
+ 	return 1 + (hdr&0x3F) + ((hdr>>6)&0x3F);
+@@ -129,17 +171,32 @@
+ 	return res;
+ }
+
++Result aptSendSyncRequest()
++{
++	Handle aptuHandle;
++
++	if (aptLockHandle) svcWaitSynchronization(aptLockHandle, U64_MAX);
++	Result res = aptGetServiceHandle(&aptuHandle);
++	if (R_SUCCEEDED(res))
++	{
++		res = svcSendSyncRequest(aptuHandle);
++		svcCloseHandle(aptuHandle);
++	}
++	if (aptLockHandle) svcReleaseMutex(aptLockHandle);
++	return res;
++}
++
+ static void aptClearParamQueue(void)
+ {
+ 	// Check for parameters?
+ 	for (;;)
+ 	{
+ 		APT_Command cmd;
+-		Result res = APT_GlanceParameter(envGetAptAppId(), aptParameters, sizeof(aptParameters), NULL, &cmd, NULL, NULL);
++		Result res = APT_GlanceParameter(aptappid, aptParameters, sizeof(aptParameters), NULL, &cmd, NULL, NULL);
+ 		if (R_FAILED(res) || cmd==APTCMD_NONE) break;
+ 		_aptDebug(2, cmd);
+ 		svcClearEvent(aptEvents[2]);
+-		APT_CancelParameter(APPID_NONE, envGetAptAppId(), NULL);
++		APT_CancelParameter(APPID_NONE, aptappid, NULL);
+ 	}
+ }
+
+@@ -172,25 +229,36 @@
+ 	capinfo->size = main_pixsz * 0x7000 + main_pixsz * 0x19000 + capinfo->top.rightOffset;
+ }
+
+-Result aptInit(void)
++Result aptInit(NS_APPID appid, int level, int attr, int idk)
+ {
+ 	Result ret=0;
+
+-	if (AtomicPostIncrement(&aptRefCount)) return 0;
++	//if (AtomicPostIncrement(&aptRefCount)) return 1;
++	if(aptLockHandle) return 0xE0A0CFF9;
++
++	aptLevel = level;
+
+ 	// Retrieve APT lock
+-	ret = APT_GetLockHandle(0x0, &aptLockHandle);
++	ret = APT_GetLockHandleO(0x0, &aptLockHandle, &aptattr, &aptpos);
+ 	if (R_FAILED(ret)) goto _fail;
+-	if (aptIsCrippled()) return 0;
++	//if (aptIsCrippled()) return 2;
++
++	aptappid = appid;
++
++	APT_SetPowerButtonState(aptattr & 1);
++	APT_SetOrderToClose((aptattr & 2) >> 1);
+
+ 	// Initialize APT
+-	APT_AppletAttr attr = aptMakeAppletAttr(APTPOS_APP, false, false);
+-	ret = APT_Initialize(envGetAptAppId(), attr, &aptEvents[1], &aptEvents[2]);
++	if(attr != 0xFFFFFFFF) aptattr = attr;//aptMakeAppletAttr(APTPOS_APP, false, false);
++	ret = APT_Initialize(aptappid, aptattr, &aptEvents[1], &aptEvents[2]);
+ 	if (R_FAILED(ret)) goto _fail2;
+
++	if(idk & 1)
++	{
+ 	// Enable APT
+ 	ret = APT_Enable(attr);
+ 	if (R_FAILED(ret)) goto _fail3;
++	}
+
+ 	// Create APT close event
+ 	ret = svcCreateEvent(&aptEvents[0], RESET_STICKY);
+@@ -200,11 +268,12 @@
+ 	LightEvent_Init(&aptSleepEvent, RESET_ONESHOT);
+
+ 	// Create APT event handler thread
+-	aptEventHandlerThread = threadCreate(aptEventHandler, 0x0, APT_HANDLER_STACKSIZE, 0x31, -2, true);
++	aptEventHandlerThread = threadCreate(aptEventHandler, 0x0, APT_HANDLER_STACKSIZE, 0x31 /*0xF*/, -2, true);
+ 	if (!aptEventHandlerThread) goto _fail4;
+
+ 	// Special handling for aptReinit (aka hax)
+ 	APT_Transition transition = TR_ENABLE;
++	/*
+ 	if (aptIsReinit())
+ 	{
+ 		transition = TR_JUMPTOMENU;
+@@ -212,16 +281,19 @@
+ 		// Clear out any pending parameters
+ 		bool success = false;
+ 		do
+-			ret = APT_CancelParameter(APPID_NONE, envGetAptAppId(), &success);
++			ret = APT_CancelParameter(APPID_NONE, aptappid, &success);
+ 		while (success);
+
+ 		// APT thinks the application is suspended, so we need to tell it to unsuspend us.
+ 		APT_PrepareToJumpToApplication(false);
+ 		APT_JumpToApplication(NULL, 0, 0);
+ 	}
++	*/
+
+ 	// Wait for wakeup
++	if(!(attr & 0x27))
+ 	aptWaitForWakeUp(transition);
++
+ 	return 0;
+
+ _fail4:
+@@ -232,7 +304,8 @@
+ _fail2:
+ 	svcCloseHandle(aptLockHandle);
+ _fail:
+-	AtomicDecrement(&aptRefCount);
++	aptLockHandle = 0;
++	//AtomicDecrement(&aptRefCount);
+ 	return ret;
+ }
+
+@@ -252,47 +325,38 @@
+ 	else if (!allowed && cur)
+ 	{
+ 		aptFlags &= ~FLAG_ALLOWSLEEP;
+-		APT_ReplySleepQuery(envGetAptAppId(), APTREPLY_REJECT);
++		APT_ReplySleepQuery(aptappid, APTREPLY_REJECT);
+ 	}
+ }
+
+-static void aptExitProcess(void)
++/*static void aptExitProcess(void)
+ {
+ 	APT_CloseApplication(NULL, 0, 0);
+ 	svcExitProcess();
+-}
++}*/
+
+ void aptExit(void)
+ {
+-	if (AtomicDecrement(&aptRefCount)) return;
++	//if (AtomicDecrement(&aptRefCount)) return;
++	if(!aptLockHandle) return;
+
+-	bool closeAptLock = true;
+-
+-	if (!aptIsCrippled())
+-	{
+-		if ((aptFlags & FLAG_EXITED) || !aptIsReinit())
+-		{
+-			APT_PrepareToCloseApplication(true);
++	//bool closeAptLock = true;
+
+-			extern void (*__system_retAddr)(void);
+-			__system_retAddr = aptExitProcess;
+-			closeAptLock = false;
+-			srvInit(); // Keep srv initialized
+-		} else
+-		{
+-			APT_Finalize(envGetAptAppId());
++	APT_Finalize(aptappid);
+ 			aptClearParamQueue();
+-		}
+-
+ 		svcSignalEvent(aptEvents[0]);
+ 		threadJoin(aptEventHandlerThread, U64_MAX);
+ 		int i;
+-		for (i = 0; i < 3; i ++)
++	for (i = 0; i < 3; i++)
+ 			svcCloseHandle(aptEvents[i]);
+-	}
+
+-	if (closeAptLock)
+ 		svcCloseHandle(aptLockHandle);
++	aptLockHandle = 0;
++}
++
++__attribute__((weak)) int aptCallEvent(APT_Signal sig)
++{
++	return 0;
+ }
+
+ void aptEventHandler(void *arg)
+@@ -305,8 +369,11 @@
+ 		if (id != 1) break;
+
+ 		APT_Signal signal;
+-		Result res = APT_InquireNotification(envGetAptAppId(), &signal);
++		Result res = APT_InquireNotification(aptappid, &signal);
+ 		if (R_FAILED(res)) break;
++
++		if(aptCallEvent(signal)) continue;
++
+ 		switch (signal)
+ 		{
+ 			case APTSIGNAL_HOMEBUTTON:
+@@ -316,7 +383,7 @@
+ 				if (!aptHomeButtonState) aptHomeButtonState = 2;
+ 				break;
+ 			case APTSIGNAL_SLEEP_QUERY:
+-				APT_ReplySleepQuery(envGetAptAppId(), aptIsSleepAllowed() ? APTREPLY_ACCEPT : APTREPLY_REJECT);
++				APT_ReplySleepQuery(aptappid, aptIsSleepAllowed() ? APTREPLY_ACCEPT : APTREPLY_REJECT);
+ 				break;
+ 			case APTSIGNAL_SLEEP_CANCEL:
+ 				// Do something maybe?
+@@ -358,7 +425,7 @@
+
+ 	svcWaitSynchronization(aptEvents[2], U64_MAX);
+ 	svcClearEvent(aptEvents[2]);
+-	Result res = APT_ReceiveParameter(envGetAptAppId(), aptParameters, sizeof(aptParameters), &sender, cmd, actualSize, handle);
++	Result res = APT_ReceiveParameter(aptappid, aptParameters, sizeof(aptParameters), &sender, cmd, actualSize, handle);
+ 	if (R_SUCCEEDED(res) && *cmd == APTCMD_MESSAGE && aptMessageFunc)
+ 		aptMessageFunc(aptMessageFuncData, sender, aptParameters, *actualSize);
+ 	return res;
+@@ -367,7 +434,7 @@
+ APT_Command aptWaitForWakeUp(APT_Transition transition)
+ {
+ 	APT_Command cmd;
+-	APT_NotifyToWait(envGetAptAppId());
++	APT_NotifyToWait(aptappid);
+ 	if (transition != TR_ENABLE)
+ 		APT_SleepIfShellClosed();
+ 	aptFlags &= ~FLAG_ACTIVE;
+@@ -435,7 +502,7 @@
+
+ 	for (;;)
+ 	{
+-		Result res = APT_SendParameter(envGetAptAppId(), appId, sysApplet ? APTCMD_SYSAPPLET_REQUEST : APTCMD_REQUEST, &capinfo, sizeof(capinfo), 0);
++		Result res = APT_SendParameter(aptappid, appId, sysApplet ? APTCMD_SYSAPPLET_REQUEST : APTCMD_REQUEST, &capinfo, sizeof(capinfo), 0);
+ 		if (R_SUCCEEDED(res)) break;
+ 		svcSleepThread(10000000);
+ 	}
+@@ -477,7 +544,7 @@
+ 	{
+ 		aptFlags = (aptFlags &~ FLAG_WANTSTOSLEEP) | FLAG_SLEEPING;
+ 		aptCallHook(APTHOOK_ONSLEEP);
+-		APT_ReplySleepNotificationComplete(envGetAptAppId());
++		APT_ReplySleepNotificationComplete(aptappid);
+ 		LightEvent_Wait(&aptSleepEvent);
+ 		aptFlags &= ~FLAG_SLEEPING;
+
+@@ -562,6 +629,23 @@
+
+ 	return ret;
+ }
++
++Result APT_GetLockHandleO(u16 flags, Handle* lockHandle, APT_AppletAttr* attr, APT_AppletPos* state)
++{
++	u32 cmdbuf[16];
++	cmdbuf[0]=IPC_MakeHeader(0x1,1,0); // 0x10040
++	cmdbuf[1]=flags;
++
++	Result ret = aptSendCommand(cmdbuf);
++	if (R_SUCCEEDED(ret))
++	{
++		*lockHandle = cmdbuf[5];
++		if(attr) *attr = cmdbuf[2];
++		if(state) *state = cmdbuf[3];
++	}
++
++	return ret;
++}
+
+ Result APT_Initialize(NS_APPID appId, APT_AppletAttr attr, Handle* signalEvent, Handle* resumeEvent)
+ {
+diff -rub ctrulib/libctru/source/system/allocateHeaps.c TreeHome/libctru/source/system/allocateHeaps.c
+--- ctrulib/libctru/source/system/allocateHeaps.c	2018-07-24 18:35:55.977405840 -0700
++++ TreeHome/libctru/source/system/allocateHeaps.c	2018-07-24 17:34:10.138763774 -0700
+@@ -14,23 +14,25 @@
+ void __attribute__((weak)) __system_allocateHeaps(void) {
+ 	u32 tmp=0;
+
+-	if(envIsHomebrew()) {
+-		// Use launcher-provided heap information.
+-		__ctru_heap_size = envGetHeapSize();
+-		__ctru_linear_heap_size = envGetLinearHeapSize();
+-	} else {
+ 		// Distribute available memory into halves, aligning to page size.
+-		u32 size = (osGetMemRegionFree(MEMREGION_APPLICATION) / 2) & 0xFFFFF000;
++	u32 size = (osGetMemRegionFree(MEMREGION_SYSTEM) / 2) & 0xFFFFF000;
+ 		__ctru_heap_size = size;
+ 		__ctru_linear_heap_size = size;
+-	}
++
++	//*(u32*)0x00100998 = size;
++
+
+ 	// Allocate the application heap
++	//__ctru_heap = 0x10000000;
+ 	__ctru_heap = 0x08000000;
+ 	svcControlMemory(&tmp, __ctru_heap, 0x0, __ctru_heap_size, MEMOP_ALLOC, MEMPERM_READ | MEMPERM_WRITE);
++	//svcControlMemory(&__ctru_heap, 0x08000000, 0x0, __ctru_heap_size, MEMOP_ALLOC, MEMPERM_READ | MEMPERM_WRITE);
+
+ 	// Allocate the linear heap
+-	svcControlMemory(&__ctru_linear_heap, 0x0, 0x0, __ctru_linear_heap_size, MEMOP_ALLOC_LINEAR, MEMPERM_READ | MEMPERM_WRITE);
++	//__ctru_linear_heap = 0x18000000;
++	Result res = svcControlMemory(&__ctru_linear_heap, 0x0, 0x0, __ctru_linear_heap_size, MEMOP_ALLOC_LINEAR, MEMPERM_READ | MEMPERM_WRITE);
++	if(res < 0) *(u32*)0x00100069 = res;
++	if(__ctru_linear_heap < 0x08000000) *(u32*)0x00100070 = __ctru_linear_heap;
+
+ 	// Set up newlib heap
+ 	fake_heap_start = (char*)__ctru_heap;
+diff -rub ctrulib/libctru/source/system/appInit.c TreeHome/libctru/source/system/appInit.c
+--- ctrulib/libctru/source/system/appInit.c	2016-09-26 21:09:39.841161381 -0700
++++ TreeHome/libctru/source/system/appInit.c	2018-07-24 17:34:10.138763774 -0700
+@@ -1,5 +1,6 @@
+ #include <3ds/types.h>
+ #include <3ds/srv.h>
++#include <3ds/env.h>
+ #include <3ds/gfx.h>
+ #include <3ds/sdmc.h>
+ #include <3ds/services/apt.h>
+@@ -9,7 +10,7 @@
+ void __attribute__((weak)) __appInit(void) {
+ 	// Initialize services
+ 	srvInit();
+-	aptInit();
++	aptInit(envGetAptAppId(), 2, 1, 0xFFFFFFFF);
+ 	hidInit();
+
+ 	fsInit();
+diff -rub ctrulib/libctru/source/system/initSystem.c TreeHome/libctru/source/system/initSystem.c
+--- ctrulib/libctru/source/system/initSystem.c	2016-09-26 21:09:39.841161381 -0700
++++ TreeHome/libctru/source/system/initSystem.c	2018-07-24 17:34:10.138763774 -0700
+@@ -18,7 +18,7 @@
+ void __attribute__((weak)) __libctru_init(void (*retAddr)(void))
+ {
+ 	// Store the return address
+-	__system_retAddr = envIsHomebrew() ? retAddr : NULL;
++	__system_retAddr = NULL;
+
+ 	// Initialize the synchronization subsystem
+ 	__sync_init();

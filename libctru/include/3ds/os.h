@@ -3,6 +3,15 @@
  * @brief OS related stuff.
  */
 #pragma once
+#include "svc.h"
+
+#define SYSCLOCK_SOC       (16756991)
+#define SYSCLOCK_ARM9      (SYSCLOCK_SOC * 8)
+#define SYSCLOCK_ARM11     (SYSCLOCK_ARM9 * 2)
+#define SYSCLOCK_ARM11_NEW (SYSCLOCK_ARM11 * 3)
+
+#define CPU_TICKS_PER_MSEC (SYSCLOCK_ARM11 / 1000.0)
+#define CPU_TICKS_PER_USEC (SYSCLOCK_ARM11 / 1000000.0)
 
 /// Packs a system version from its components.
 #define SYSTEM_VERSION(major, minor, revision) \
@@ -25,6 +34,13 @@ typedef enum
 	MEMREGION_SYSTEM = 2,      ///< SYSTEM memory.
 	MEMREGION_BASE = 3,        ///< BASE memory.
 } MemRegion;
+
+/// Tick counter.
+typedef struct
+{
+	u64 elapsed;   ///< Elapsed CPU ticks between measurements.
+	u64 reference; ///< Point in time used as reference.
+} TickCounter;
 
 /// OS_VersionBin. Format of the system version: "<major>.<minor>.<build>-<nupver><region>"
 typedef struct
@@ -123,6 +139,33 @@ static inline s64 osGetMemRegionFree(MemRegion region)
  * @return The number of milliseconds since 1st Jan 1900 00:00.
  */
 u64 osGetTime(void);
+
+/**
+ * @brief Starts a tick counter.
+ * @param cnt The tick counter.
+ */
+static inline void osTickCounterStart(TickCounter* cnt)
+{
+	cnt->reference = svcGetSystemTick();
+}
+
+/**
+ * @brief Updates the elapsed time in a tick counter.
+ * @param cnt The tick counter.
+ */
+static inline void osTickCounterUpdate(TickCounter* cnt)
+{
+	u64 now = svcGetSystemTick();
+	cnt->elapsed = now - cnt->reference;
+	cnt->reference = now;
+}
+
+/**
+ * @brief Reads the elapsed time in a tick counter.
+ * @param cnt The tick counter.
+ * @return The number of milliseconds elapsed.
+ */
+double osTickCounterRead(const TickCounter* cnt);
 
 /**
  * @brief Gets the current Wifi signal strength.

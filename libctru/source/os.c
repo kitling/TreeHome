@@ -8,9 +8,6 @@
 #include <reent.h>
 #include <unistd.h>
 
-#define TICKS_PER_USEC 268.123480
-#define TICKS_PER_MSEC 268123.480
-
 // Work around the VFP not supporting 64-bit integer <--> floating point conversion
 static inline double u64_to_double(u64 value) {
 	return (((double)(u32)(value >> 32))*0x100000000ULL+(u32)value);
@@ -85,7 +82,7 @@ int __libctru_gtod(struct _reent *ptr, struct timeval *tp, struct timezone *tz) 
 
 		u64 delta = svcGetSystemTick() - dt.update_tick;
 
-		u32 offset =  (u32)(u64_to_double(delta)/TICKS_PER_USEC);
+		u32 offset =  (u32)(u64_to_double(delta)/CPU_TICKS_PER_USEC);
 
 		// adjust from 1900 to 1970
 		u64 now = ((dt.date_time - 2208988800000ULL) * 1000) + offset;
@@ -112,7 +109,13 @@ u64 osGetTime(void) {
 
 	u64 delta = svcGetSystemTick() - dt.update_tick;
 
-	return dt.date_time + (u32)(u64_to_double(delta)/TICKS_PER_MSEC);
+	return dt.date_time + (u32)(u64_to_double(delta)/CPU_TICKS_PER_MSEC);
+}
+
+//---------------------------------------------------------------------------------
+double osTickCounterRead(const TickCounter* cnt) {
+//---------------------------------------------------------------------------------
+	return u64_to_double(cnt->elapsed) / CPU_TICKS_PER_MSEC;
 }
 
 //---------------------------------------------------------------------------------
@@ -159,13 +162,4 @@ void osSetSpeedupEnable(bool enable)
 {
 	__ctru_speedup = enable;
 	__ctru_speedup_config();
-}
-
-int usleep(useconds_t useconds)
-{
-
-	svcSleepThread(useconds * 1000ull);
-
-	return 0;
-
 }

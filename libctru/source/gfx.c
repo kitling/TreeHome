@@ -3,6 +3,7 @@
 #include <3ds/types.h>
 #include <3ds/gfx.h>
 #include <3ds/svc.h>
+#include <3ds/synchronization.h>
 #include <3ds/allocator/linear.h>
 #include <3ds/allocator/mappable.h>
 #include <3ds/allocator/vram.h>
@@ -16,6 +17,8 @@ u8* gfxSharedMemory;
 u8* gfxTopLeftFramebuffers[2];
 u8* gfxTopRightFramebuffers[2];
 u8* gfxBottomFramebuffers[2];
+u32 gfxTopFramebufferMaxSize;
+u32 gfxBottomFramebufferMaxSize;
 
 static bool enable3d;
 static u8 currentBuffer[2];
@@ -28,6 +31,9 @@ static GSPGPU_FramebufferFormats botFormat = GSP_BGR8_OES;
 
 static GSPGPU_FramebufferInfo* const framebufferInfoSt[] = { &topFramebufferInfo, &bottomFramebufferInfo };
 
+static void (*screenFree)(void *) = NULL;
+static void *(*screenAlloc)(size_t) = NULL;
+
 void gfxSet3D(bool enable)
 {
 	enable3d=enable;
@@ -38,40 +44,65 @@ bool gfxIs3D(void)
 	return enable3d;
 }
 
+u32 __get_bytes_per_pixel(GSPGPU_FramebufferFormats format) {
+	switch(format) {
+	case GSP_RGBA8_OES:
+		return 4;
+	case GSP_BGR8_OES:
+		return 3;
+	case GSP_RGB565_OES:
+	case GSP_RGB5_A1_OES:
+	case GSP_RGBA4_OES:
+		return 2;
+	}
+
+	return 3;
+}
+
 void gfxSetScreenFormat(gfxScreen_t screen, GSPGPU_FramebufferFormats format) {
-    if(screen==GFX_TOP)
-        topFormat = format;
-    else
-        botFormat = format;
+	if (screenAlloc == NULL || screenFree == NULL) return;
+	if(screen==GFX_TOP)
+	{
+		u32 topSize = 400 * 240 * __get_bytes_per_pixel(format);
+		if (gfxTopFramebufferMaxSize < topSize)
+		{
+			screenFree(gfxTopLeftFramebuffers[0]);
+			screenFree(gfxTopLeftFramebuffers[1]);
+			screenFree(gfxTopRightFramebuffers[0]);
+			screenFree(gfxTopRightFramebuffers[1]);
+			gfxTopLeftFramebuffers[0]=screenAlloc(topSize);
+			gfxTopLeftFramebuffers[1]=screenAlloc(topSize);
+			gfxTopRightFramebuffers[0]=screenAlloc(topSize);
+			gfxTopRightFramebuffers[1]=screenAlloc(topSize);
+			gfxTopFramebufferMaxSize = topSize;
+		}
+		topFormat = format;
+	}else{
+		u32 bottomSize = 320 * 240 * __get_bytes_per_pixel(format);
+		if (gfxBottomFramebufferMaxSize < bottomSize)
+		{
+			screenFree(gfxBottomFramebuffers[0]);
+			screenFree(gfxBottomFramebuffers[1]);
+			gfxBottomFramebuffers[0]=screenAlloc(bottomSize);
+			gfxBottomFramebuffers[1]=screenAlloc(bottomSize);
+			gfxBottomFramebufferMaxSize = bottomSize;
+		}
+		botFormat = format;
+	}
 }
 
 GSPGPU_FramebufferFormats gfxGetScreenFormat(gfxScreen_t screen) {
-    if(screen==GFX_TOP)
-        return topFormat;
-    else
-        return botFormat;
+	if(screen==GFX_TOP)
+		return topFormat;
+	else
+		return botFormat;
 }
 
 void gfxSetDoubleBuffering(gfxScreen_t screen, bool doubleBuffering) {
 	doubleBuf[screen] = doubleBuffering ? 1 : 0; // make sure they're the integer values '1' and '0'
 }
 
-u32 __get_bytes_per_pixel(GSPGPU_FramebufferFormats format) {
-    switch(format) {
-    case GSP_RGBA8_OES:
-        return 4;
-    case GSP_BGR8_OES:
-        return 3;
-    case GSP_RGB565_OES:
-    case GSP_RGB5_A1_OES:
-    case GSP_RGBA4_OES:
-        return 2;
-    }
-
-    return 3;
-}
-
-void gfxSetFramebufferInfo(gfxScreen_t screen, u8 id)
+static void gfxSetFramebufferInfo(gfxScreen_t screen, u8 id)
 {
 	if(screen==GFX_TOP)
 	{
@@ -95,22 +126,31 @@ void gfxSetFramebufferInfo(gfxScreen_t screen, u8 id)
 	}
 }
 
-void gfxWriteFramebufferInfo(gfxScreen_t screen)
+static void gfxWriteFramebufferInfo(gfxScreen_t screen)
 {
-	u8* framebufferInfoHeader=gfxSharedMemory+0x200+gfxThreadID*0x80;
-	if(screen==GFX_BOTTOM)framebufferInfoHeader+=0x40;
-	GSPGPU_FramebufferInfo* framebufferInfo=(GSPGPU_FramebufferInfo*)&framebufferInfoHeader[0x4];
-	framebufferInfoHeader[0x0]^=doubleBuf[screen];
-	framebufferInfo[framebufferInfoHeader[0x0]]=*framebufferInfoSt[screen];
-	framebufferInfoHeader[0x1]=1;
+	s32* framebufferInfoHeader=(s32*)(gfxSharedMemory+0x200+gfxThreadID*0x80);
+	if(screen==GFX_BOTTOM)framebufferInfoHeader+=0x10;
+	GSPGPU_FramebufferInfo* framebufferInfo=(GSPGPU_FramebufferInfo*)&framebufferInfoHeader[1];
+	union
+	{
+		s32 header;
+		struct { u8 swap, update; };
+	} info;
+	info.header = __ldrex(framebufferInfoHeader);
+	info.swap = !info.swap;
+	u8 pos = info.swap;
+	info.update = 1;
+	framebufferInfo[pos]=*framebufferInfoSt[screen];
+	while (__strex(framebufferInfoHeader,info.header))
+	{
+		info.header = __ldrex(framebufferInfoHeader);
+		info.swap = pos;
+		info.update = 1;
+	}
 }
-
-static void (*screenFree)(void *) = NULL;
 
 void gfxInit(GSPGPU_FramebufferFormats topFormat, GSPGPU_FramebufferFormats bottomFormat, bool vrambuffers)
 {
-	void *(*screenAlloc)(size_t);
-
 	if (vrambuffers)
 	{
 		screenAlloc=vramAlloc;
@@ -150,6 +190,8 @@ void gfxInit(GSPGPU_FramebufferFormats topFormat, GSPGPU_FramebufferFormats bott
 	gfxBottomFramebuffers[1]=screenAlloc(bottomSize);
 	gfxTopRightFramebuffers[0]=screenAlloc(topSize);
 	gfxTopRightFramebuffers[1]=screenAlloc(topSize);
+	gfxTopFramebufferMaxSize = topSize;
+	gfxBottomFramebufferMaxSize = bottomSize;
 
 	enable3d=false;
 

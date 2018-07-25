@@ -8,6 +8,7 @@
 enum {
 	RUNFLAG_APTWORKAROUND = BIT(0), ///< Use APT workaround.
 	RUNFLAG_APTREINIT     = BIT(1), ///< Reinitialize APT.
+	RUNFLAG_APTCHAINLOAD  = BIT(2), ///< Chainload APT on return.
 };
 
 /**
@@ -36,21 +37,21 @@ static inline u32 envGetAptAppId(void) {
 }
 
 /**
- * @brief Gets the environment-recommended heap size.
- * @return The heap size.
+ * @brief Gets the size of the application heap.
+ * @return The application heap size.
  */
 static inline u32 envGetHeapSize(void) {
-	extern u32 __heap_size;
-	return __heap_size;
+	extern u32 __ctru_heap_size;
+	return __ctru_heap_size;
 }
 
 /**
- * @brief Gets the environment-recommended linear heap size.
+ * @brief Gets the size of the linear heap.
  * @return The linear heap size.
  */
 static inline u32 envGetLinearHeapSize(void) {
-	extern u32 __linear_heap_size;
-	return __linear_heap_size;
+	extern u32 __ctru_linear_heap_size;
+	return __ctru_linear_heap_size;
 }
 
 /**

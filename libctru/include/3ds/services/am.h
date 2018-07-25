@@ -142,6 +142,37 @@ Result AM_GetPendingTitleInfo(u32 titleCount, FS_MediaType mediatype, u64 *title
 Result AM_GetDeviceId(u32 *deviceID);
 
 /**
+ * @brief Exports DSiWare to the specified filepath.
+ * @param titleID TWL titleID.
+ * @param operation DSiWare operation type.
+ * @param workbuf Work buffer.
+ * @param workbuf_size Work buffer size, must be >=0x20000.
+ * @param filepath UTF-8 filepath(converted to UTF-16 internally).
+ */
+Result AM_ExportTwlBackup(u64 titleID, u8 operation, void* workbuf, u32 workbuf_size, const char *filepath);
+
+/**
+ * @brief Imports DSiWare from the specified file.
+ * @param filehandle FSUSER file handle.
+ * @param operation DSiWare operation type.
+ * @param buffer Work buffer.
+ * @param size Buffer size, must be >=0x20000.
+ */
+Result AM_ImportTwlBackup(Handle filehandle, u8 operation, void* buffer, u32 size);
+
+/**
+ * @brief Reads info from the specified DSiWare export file. This can only be used with DSiWare exported with certain operation value(s).
+ * @param filehandle FSUSER file handle.
+ * @param outinfo Output info buffer.
+ * @param outinfo_size Output info buffer size.
+ * @param workbuf Work buffer.
+ * @param workbuf_size Work buffer size.
+ * @param banner Output banner buffer.
+ * @param banner_size Output banner buffer size.
+ */
+Result AM_ReadTwlBackupInfo(Handle filehandle, void* outinfo, u32 outinfo_size, void* workbuf, u32 workbuf_size, void* banner, u32 banner_size);
+
+/**
  * @brief Retrieves information about the NAND TWL partition.
  * @param[out] info Pointer to output the TWL partition info to.
  */
@@ -171,6 +202,21 @@ Result AM_CancelCIAInstall(Handle ciaHandle);
  * @param ciaHandle CIA handle to finalize.
  */
 Result AM_FinishCiaInstall(Handle ciaHandle);
+
+/**
+ * @brief Finalizes the CIA install process without committing the title to title.db or tmp*.db.
+ * @param ciaHandle CIA handle to finalize.
+ */
+Result AM_FinishCiaInstallWithoutCommit(Handle ciaHandle);
+
+/**
+ * @brief Commits installed CIAs.
+ * @param mediaType Location of the titles to finalize.
+ * @param titleCount Number of titles to finalize.
+ * @param temp Whether the titles being finalized are in the temporary database.
+ * @param titleIds Title IDs to finalize.
+ */
+Result AM_CommitImportPrograms(FS_MediaType mediaType, u32 titleCount, bool temp, const u64* titleIds);
 
 /**
  * @brief Deletes a title.
@@ -328,7 +374,7 @@ Result AM_InstallTicketFinish(Handle ticketHandle);
 Result AM_InstallTitleBegin(FS_MediaType mediaType, u64 titleId, bool unk);
 
 /// Stops installing a title, generally to be resumed later.
-Result AM_InstallTitleStop();
+Result AM_InstallTitleStop(void);
 
 /**
  * @brief Resumes installing a title.
@@ -338,10 +384,10 @@ Result AM_InstallTitleStop();
 Result AM_InstallTitleResume(FS_MediaType mediaType, u64 titleId);
 
 /// Aborts installing a title.
-Result AM_InstallTitleAbort();
+Result AM_InstallTitleAbort(void);
 
 /// Finishes installing a title.
-Result AM_InstallTitleFinish();
+Result AM_InstallTitleFinish(void);
 
 /**
  * @brief Commits installed titles.
@@ -350,7 +396,7 @@ Result AM_InstallTitleFinish();
  * @param temp Whether the titles being finalized are in the temporary database.
  * @param titleIds Title IDs to finalize.
  */
-Result AM_CommitImportTitles(FS_MediaType mediaType, u32 titleCount, bool temp, u64* titleIds);
+Result AM_CommitImportTitles(FS_MediaType mediaType, u32 titleCount, bool temp, const u64* titleIds);
 
 /**
  * @brief Begins installing a TMD.
@@ -439,3 +485,18 @@ Result AM_ImportCertificate(u32 certSize, void* cert);
  * @param titleIds Title IDs to finalize.
  */
 Result AM_CommitImportTitlesAndUpdateFirmwareAuto(FS_MediaType mediaType, u32 titleCount, bool temp, u64* titleIds);
+
+/// Resets play count of all installed demos by deleting their launch info.
+Result AM_DeleteAllDemoLaunchInfos(void);
+
+/// Deletes temporary titles.
+Result AM_DeleteAllTemporaryTitles(void);
+
+/**
+ * @brief Deletes all expired titles.
+ * @param mediatype Media type to delete from.
+ */
+Result AM_DeleteAllExpiredTitles(FS_MediaType mediatype);
+
+/// Deletes all TWL titles.
+Result AM_DeleteAllTwlTitles(void);

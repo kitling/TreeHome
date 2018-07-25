@@ -25,12 +25,12 @@
 static int sdmc_translate_error(Result error);
 
 static int       sdmc_open(struct _reent *r, void *fileStruct, const char *path, int flags, int mode);
-static int       sdmc_close(struct _reent *r, int fd);
-static ssize_t   sdmc_write(struct _reent *r, int fd, const char *ptr, size_t len);
-static ssize_t   sdmc_write_safe(struct _reent *r, int fd, const char *ptr, size_t len);
-static ssize_t   sdmc_read(struct _reent *r, int fd, char *ptr, size_t len);
-static off_t     sdmc_seek(struct _reent *r, int fd, off_t pos, int dir);
-static int       sdmc_fstat(struct _reent *r, int fd, struct stat *st);
+static int       sdmc_close(struct _reent *r, void *fd);
+static ssize_t   sdmc_write(struct _reent *r, void *fd, const char *ptr, size_t len);
+static ssize_t   sdmc_write_safe(struct _reent *r, void *fd, const char *ptr, size_t len);
+static ssize_t   sdmc_read(struct _reent *r, void *fd, char *ptr, size_t len);
+static off_t     sdmc_seek(struct _reent *r, void *fd, off_t pos, int dir);
+static int       sdmc_fstat(struct _reent *r, void *fd, struct stat *st);
 static int       sdmc_stat(struct _reent *r, const char *file, struct stat *st);
 static int       sdmc_link(struct _reent *r, const char *existing, const char  *newLink);
 static int       sdmc_unlink(struct _reent *r, const char *name);
@@ -42,10 +42,10 @@ static int       sdmc_dirreset(struct _reent *r, DIR_ITER *dirState);
 static int       sdmc_dirnext(struct _reent *r, DIR_ITER *dirState, char *filename, struct stat *filestat);
 static int       sdmc_dirclose(struct _reent *r, DIR_ITER *dirState);
 static int       sdmc_statvfs(struct _reent *r, const char *path, struct statvfs *buf);
-static int       sdmc_ftruncate(struct _reent *r, int fd, off_t len);
-static int       sdmc_fsync(struct _reent *r, int fd);
+static int       sdmc_ftruncate(struct _reent *r, void *fd, off_t len);
+static int       sdmc_fsync(struct _reent *r, void *fd);
 static int       sdmc_chmod(struct _reent *r, const char *path, mode_t mode);
-static int       sdmc_fchmod(struct _reent *r, int fd, mode_t mode);
+static int       sdmc_fchmod(struct _reent *r, void *fd, mode_t mode);
 static int       sdmc_rmdir(struct _reent *r, const char *name);
 
 /*! @cond INTERNAL */
@@ -66,7 +66,7 @@ sdmc_devoptab =
   .structSize   = sizeof(sdmc_file_t),
   .open_r       = sdmc_open,
   .close_r      = sdmc_close,
-  .write_r      = sdmc_write_safe,
+  .write_r      = sdmc_write,
   .read_r       = sdmc_read,
   .seek_r       = sdmc_seek,
   .fstat_r      = sdmc_fstat,
@@ -84,7 +84,7 @@ sdmc_devoptab =
   .statvfs_r    = sdmc_statvfs,
   .ftruncate_r  = sdmc_ftruncate,
   .fsync_r      = sdmc_fsync,
-  .deviceData   = NULL,
+  .deviceData   = 0,
   .chmod_r      = sdmc_chmod,
   .fchmod_r     = sdmc_fchmod,
   .rmdir_r      = sdmc_rmdir,
@@ -146,11 +146,12 @@ sdmc_fixpath(struct _reent *r,
   } while(code != 0);
 
   if(path[0] == '/')
-    strncpy(__fixedpath, path, PATH_MAX+1);
+    strncpy(__fixedpath, path, PATH_MAX);
   else
   {
-    strncpy(__fixedpath, __cwd, PATH_MAX+1);
-    strncat(__fixedpath, path, PATH_MAX+1);
+    strncpy(__fixedpath, __cwd, PATH_MAX);
+    __fixedpath[PATH_MAX] = '\0';
+    strncat(__fixedpath, path, PATH_MAX);
   }
 
   if(__fixedpath[PATH_MAX] != 0)
@@ -416,7 +417,7 @@ sdmc_open(struct _reent *r,
  */
 static int
 sdmc_close(struct _reent *r,
-           int           fd)
+           void          *fd)
 {
   Result      rc;
 
@@ -443,7 +444,7 @@ sdmc_close(struct _reent *r,
  */
 static ssize_t
 sdmc_write(struct _reent *r,
-           int           fd,
+           void          *fd,
            const char    *ptr,
            size_t        len)
 {
@@ -501,7 +502,7 @@ sdmc_write(struct _reent *r,
  */
 static ssize_t
 sdmc_write_safe(struct _reent *r,
-                int           fd,
+                void          *fd,
                 const char    *ptr,
                 size_t        len)
 {
@@ -548,7 +549,7 @@ sdmc_write_safe(struct _reent *r,
     memcpy(tmp_buffer, ptr, toWrite);
 
     /* write the data */
-    rc = FSFILE_Write(file->fd, &bytes, file->offset, 
+    rc = FSFILE_Write(file->fd, &bytes, file->offset,
                       (u32*)tmp_buffer, (u32)toWrite, sync);
     if(R_FAILED(rc))
     {
@@ -581,7 +582,7 @@ sdmc_write_safe(struct _reent *r,
  */
 static ssize_t
 sdmc_read(struct _reent *r,
-          int           fd,
+          void          *fd,
           char          *ptr,
           size_t         len)
 {
@@ -623,7 +624,7 @@ sdmc_read(struct _reent *r,
  */
 static off_t
 sdmc_seek(struct _reent *r,
-          int           fd,
+          void          *fd,
           off_t         pos,
           int           whence)
 {
@@ -686,7 +687,7 @@ sdmc_seek(struct _reent *r,
  */
 static int
 sdmc_fstat(struct _reent *r,
-           int           fd,
+           void          *fd,
            struct stat   *st)
 {
   Result      rc;
@@ -732,7 +733,7 @@ sdmc_stat(struct _reent *r,
   if(R_SUCCEEDED(rc = FSUSER_OpenFile(&fd, sdmcArchive, fs_path, FS_OPEN_READ, 0)))
   {
     sdmc_file_t tmpfd = { .fd = fd };
-    rc = sdmc_fstat(r, (int)&tmpfd, st);
+    rc = sdmc_fstat(r, &tmpfd, st);
     FSFILE_Close(fd);
 
     return rc;
@@ -820,6 +821,7 @@ sdmc_chdir(struct _reent *r,
   {
     FSDIR_Close(fd);
     strncpy(__cwd, __fixedpath, PATH_MAX);
+    __cwd[PATH_MAX] = '\0';
     return 0;
   }
 
@@ -1131,7 +1133,7 @@ sdmc_statvfs(struct _reent  *r,
  */
 static int
 sdmc_ftruncate(struct _reent *r,
-               int           fd,
+               void          *fd,
                off_t         len)
 {
   Result      rc;
@@ -1165,7 +1167,7 @@ sdmc_ftruncate(struct _reent *r,
  */
 static int
 sdmc_fsync(struct _reent *r,
-           int           fd)
+           void          *fd)
 {
   Result rc;
 
@@ -1209,7 +1211,7 @@ sdmc_chmod(struct _reent *r,
  */
 static int
 sdmc_fchmod(struct _reent *r,
-            int           fd,
+            void          *fd,
             mode_t        mode)
 {
   r->_errno = ENOSYS;

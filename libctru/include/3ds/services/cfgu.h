@@ -60,7 +60,7 @@ Result CFGU_GetRegionCanadaUSA(u8* value);
 
 /**
  * @brief Gets the system's model.
- * @param model Pointer to output the model to. (0 = O3DS, 1 = O3DSXL, 2 = N3DS, 3 = 2DS, 4 = N3DSXL)
+ * @param model Pointer to output the model to. (0 = O3DS, 1 = O3DSXL, 2 = N3DS, 3 = 2DS, 4 = N3DSXL, 5 = N2DSXL)
  */
 Result CFGU_GetSystemModel(u8* model);
 
@@ -85,7 +85,13 @@ Result CFGU_GetCountryCodeString(u16 code, u16* string);
 Result CFGU_GetCountryCodeID(u16 string, u16* code);
 
 /**
- * @brief Gets a config info block.
+ * @brief Checks if NFC (code name: fangate) is supported.
+ * @param isSupported pointer to the output the result to.
+ */
+Result CFGU_IsNFCSupported(bool* isSupported);
+
+/**
+ * @brief Gets a config info block with flags = 2.
  * @param size Size of the data to retrieve.
  * @param blkID ID of the block to retrieve.
  * @param outData Pointer to write the block data to.
@@ -93,7 +99,110 @@ Result CFGU_GetCountryCodeID(u16 string, u16* code);
 Result CFGU_GetConfigInfoBlk2(u32 size, u32 blkID, u8* outData);
 
 /**
+ * @brief Gets a config info block with flags = 4.
+ * @param size Size of the data to retrieve.
+ * @param blkID ID of the block to retrieve.
+ * @param outData Pointer to write the block data to.
+ */
+Result CFG_GetConfigInfoBlk4(u32 size, u32 blkID, u8* outData);
+
+/**
+ * @brief Gets a config info block with flags = 8.
+ * @param size Size of the data to retrieve.
+ * @param blkID ID of the block to retrieve.
+ * @param outData Pointer to write the block data to.
+ */
+Result CFG_GetConfigInfoBlk8(u32 size, u32 blkID, u8* outData);
+
+/**
+ * @brief Sets a config info block with flags = 4.
+ * @param size Size of the data to retrieve.
+ * @param blkID ID of the block to retrieve.
+ * @param inData Pointer to block data to write.
+ */
+Result CFG_SetConfigInfoBlk4(u32 size, u32 blkID, u8* inData);
+
+/**
+ * @brief Sets a config info block with flags = 8.
+ * @param size Size of the data to retrieve.
+ * @param blkID ID of the block to retrieve.
+ * @param inData Pointer to block data to write.
+ */
+Result CFG_SetConfigInfoBlk8(u32 size, u32 blkID, u8* inData);
+
+
+/**
+ * @brief Writes the CFG buffer in memory to the savegame in NAND.
+ */
+Result CFG_UpdateConfigSavegame(void);
+
+/**
  * @brief Gets the system's language.
  * @param language Pointer to write the language to. (see @ref CFG_Language)
  */
 Result CFGU_GetSystemLanguage(u8* language);
+
+/**
+ * @brief Deletes the NAND LocalFriendCodeSeed file, then recreates it using the LocalFriendCodeSeed data stored in memory.
+ */
+Result CFGI_RestoreLocalFriendCodeSeed(void);
+
+/**
+ * @brief Deletes the NAND SecureInfo file, then recreates it using the SecureInfo data stored in memory.
+ */
+Result CFGI_RestoreSecureInfo(void);
+
+/**
+ * @brief Deletes the "config" file stored in the NAND Config_Savegame.
+ */
+Result CFGI_DeleteConfigSavefile(void);
+
+/**
+ * @brief Formats Config_Savegame.
+ */
+Result CFGI_FormatConfig(void);
+
+/**
+ * @brief Clears parental controls
+ */
+Result CFGI_ClearParentalControls(void);
+
+/**
+ * @brief Verifies the RSA signature for the LocalFriendCodeSeed data already stored in memory.
+ */
+Result CFGI_VerifySigLocalFriendCodeSeed(void);
+
+/**
+ * @brief Verifies the RSA signature for the SecureInfo data already stored in memory.
+ */
+Result CFGI_VerifySigSecureInfo(void);
+
+/**
+ * @brief Gets the system's serial number.
+ * @param serial Pointer to output the serial to. (This is normally 0xF)
+ */
+Result CFGI_SecureInfoGetSerialNumber(u8 *serial);
+
+/**
+ * @brief Gets the 0x110-byte buffer containing the data for the LocalFriendCodeSeed.
+ * @param data Pointer to output the buffer. (The size must be at least 0x110-bytes)
+ */
+Result CFGI_GetLocalFriendCodeSeedData(u8 *data);
+
+/**
+ * @brief Gets the 64-bit local friend code seed.
+ * @param seed Pointer to write the friend code seed to.
+ */
+Result CFGI_GetLocalFriendCodeSeed(u64* seed);
+
+/**
+ * @brief Gets the 0x11-byte data following the SecureInfo signature.
+ * @param data Pointer to output the buffer. (The size must be at least 0x11-bytes)
+ */
+Result CFGI_GetSecureInfoData(u8 *data);
+
+/**
+ * @brief Gets the 0x100-byte RSA-2048 SecureInfo signature.
+ * @param data Pointer to output the buffer. (The size must be at least 0x100-bytes)
+ */
+Result CFGI_GetSecureInfoSignature(u8 *data);

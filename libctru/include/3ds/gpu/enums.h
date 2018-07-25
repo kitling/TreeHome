@@ -78,6 +78,18 @@ typedef enum
 	GPU_ETC1A4   = 0xD, ///< ETC1 texture compression + 4-bit Alpha
 } GPU_TEXCOLOR;
 
+// Texture faces.
+typedef enum
+{
+	GPU_TEXFACE_2D = 0, // 2D face
+	GPU_POSITIVE_X = 0, // +X face
+	GPU_NEGATIVE_X = 1, // -X face
+	GPU_POSITIVE_Y = 2, // +Y face
+	GPU_NEGATIVE_Y = 3, // -Y face
+	GPU_POSITIVE_Z = 4, // +Z face
+	GPU_NEGATIVE_Z = 5, // -Z face
+} GPU_TEXFACE;
+
 /// Procedural texture clamp modes.
 typedef enum
 {
@@ -126,10 +138,10 @@ typedef enum
 typedef enum
 {
 	GPU_LUT_NOISE    = 0, ///< Noise table
-	GPU_LUT_RGBMAP   = 1, ///< RGB mapping function table
-	GPU_LUT_ALPHAMAP = 2, ///< Alpha mapping function table
-	GPU_LUT_COLOR    = 3, ///< Color table
-	GPU_LUT_COLORDIF = 4, ///< Color difference table
+	GPU_LUT_RGBMAP   = 2, ///< RGB mapping function table
+	GPU_LUT_ALPHAMAP = 3, ///< Alpha mapping function table
+	GPU_LUT_COLOR    = 4, ///< Color table
+	GPU_LUT_COLORDIF = 5, ///< Color difference table
 } GPU_PROCTEX_LUTID;
 
 /// Supported color buffer formats.
@@ -202,7 +214,7 @@ typedef enum
 	GPU_WRITE_BLUE  = 0x04, ///< Write blue.
 	GPU_WRITE_ALPHA = 0x08, ///< Write alpha.
 	GPU_WRITE_DEPTH = 0x10, ///< Write depth.
-	
+
 	GPU_WRITE_COLOR = 0x0F, ///< Write all color components.
 	GPU_WRITE_ALL   = 0x1F, ///< Write all components.
 } GPU_WRITEMASK;
@@ -373,7 +385,7 @@ typedef enum
 /// Light distance attenuation disable bits in GPUREG_LIGHT_CONFIG1.
 #define GPU_LC1_ATTNBIT(n)     BIT((n)+24)
 /// Creates a light permutation parameter.
-#define GPU_LIGHTPERM(i,n)     ((n) << (i))
+#define GPU_LIGHTPERM(i,n)     ((n) << ((i)*4))
 /// Creates a light LUT input parameter.
 #define GPU_LIGHTLUTINPUT(i,n) ((n) << ((i)*4))
 /// Creates a light LUT index parameter.
@@ -440,6 +452,28 @@ typedef enum
 	GPU_LUTSELECT_SP     = 1, ///< Spotlight LUT.
 	GPU_LUTSELECT_DA     = 2, ///< Distance attenuation LUT.
 } GPU_LIGHTLUTSELECT;
+
+/// Fog modes.
+typedef enum
+{
+	GPU_NO_FOG = 0, ///< Fog/Gas unit disabled.
+	GPU_FOG    = 5, ///< Fog/Gas unit configured in Fog mode.
+	GPU_GAS    = 7, ///< Fog/Gas unit configured in Gas mode.
+} GPU_FOGMODE;
+
+/// Gas shading density source values.
+typedef enum
+{
+	GPU_PLAIN_DENSITY = 0, ///< Plain density.
+	GPU_DEPTH_DENSITY = 1, ///< Depth density.
+} GPU_GASMODE;
+
+/// Gas color LUT inputs.
+typedef enum
+{
+	GPU_GAS_DENSITY      = 0, ///< Gas density used as input.
+	GPU_GAS_LIGHT_FACTOR = 1, ///< Light factor used as input.
+} GPU_GASLUTINPUT;
 
 /// Supported primitives.
 typedef enum

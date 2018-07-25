@@ -18,7 +18,7 @@ Result __sync_init(void);
 void __attribute__((weak)) __libctru_init(void (*retAddr)(void))
 {
 	// Store the return address
-	__system_retAddr = NULL;
+	__system_retAddr = envIsHomebrew() ? retAddr : NULL;
 
 	// Initialize the synchronization subsystem
 	__sync_init();

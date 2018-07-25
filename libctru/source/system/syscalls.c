@@ -28,12 +28,20 @@ static struct _reent* __ctru_get_reent()
 	return tv->reent;
 }
 
+static int __libctru_nanosleep(const struct timespec *req, struct timespec *rem)
+{
+	svcSleepThread(req->tv_sec * 1000000000ull + req->tv_nsec);
+	return 0;
+}
+
+
 void __system_initSyscalls(void)
 {
 	// Register newlib syscalls
 	__syscalls.exit     = __ctru_exit;
 	__syscalls.gettod_r = __libctru_gtod;
 	__syscalls.getreent = __ctru_get_reent;
+	__syscalls.nanosleep = __libctru_nanosleep;
 
 	// Register locking syscalls
 	__syscalls.lock_init                  = LightLock_Init;
@@ -51,6 +59,7 @@ void __system_initSyscalls(void)
 	tv->reent = _impure_ptr;
 	tv->thread_ptr = NULL;
 	tv->tls_tp = __tls_start-8; // ARM ELF TLS ABI mandates an 8-byte header
+	tv->srv_blocking_policy = false;
 
 	u32 tls_size = __tdata_lma_end - __tdata_lma;
 	if (tls_size)

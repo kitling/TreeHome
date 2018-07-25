@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <3ds/types.h>
 #include <3ds/result.h>
 #include <3ds/svc.h>
@@ -7,6 +8,7 @@
 #include <3ds/synchronization.h>
 #include <3ds/services/am.h>
 #include <3ds/ipc.h>
+#include <3ds/util/utf.h>
 
 static Handle amHandle;
 static int amRefCount;
@@ -60,7 +62,7 @@ Result AM_GetTitleCount(FS_MediaType mediatype, u32 *count)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(count) *count = cmdbuf[2];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -76,7 +78,7 @@ Result AM_GetTitleList(u32* titlesRead, FS_MediaType mediatype, u32 titleCount, 
 	cmdbuf[4] = (u32)titleIds;
 
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
-	
+
 	if(titlesRead) *titlesRead = cmdbuf[2];
 
 	return (Result)cmdbuf[1];
@@ -110,7 +112,7 @@ Result AM_GetTicketCount(u32 *count)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(count) *count = cmdbuf[2];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -126,7 +128,7 @@ Result AM_GetTicketList(u32 *ticketsRead, u32 ticketCount, u32 skip, u64 *ticket
 	cmdbuf[4] = (u32)ticketIds;
 
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
-	
+
 	if(ticketsRead) *ticketsRead = cmdbuf[2];
 
 	return (Result)cmdbuf[1];
@@ -144,7 +146,7 @@ Result AM_GetPendingTitleCount(u32 *count, FS_MediaType mediatype, u32 statusMas
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(count) *count = cmdbuf[2];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -161,7 +163,7 @@ Result AM_GetPendingTitleList(u32 *titlesRead, u32 titleCount, FS_MediaType medi
 	cmdbuf[5] = (u32)titleIds;
 
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
-	
+
 	if(titlesRead) *titlesRead = cmdbuf[2];
 
 	return (Result)cmdbuf[1];
@@ -195,7 +197,78 @@ Result AM_GetDeviceId(u32 *deviceID)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(deviceID) *deviceID = cmdbuf[3];
-	
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_ExportTwlBackup(u64 titleID, u8 operation, void* workbuf, u32 workbuf_size, const char *filepath)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	size_t len=255;
+	ssize_t units=0;
+	uint16_t filepath16[256];
+
+	memset(filepath16, 0, sizeof(filepath16));
+	units = utf8_to_utf16(filepath16, (uint8_t*)filepath, len);
+	if(units < 0 || units > len)return -2;
+	len = (units+1)*2;
+
+	cmdbuf[0] = IPC_MakeHeader(0x1B,5,4); // 0x001B0144
+	cmdbuf[1] = titleID & 0xffffffff;
+	cmdbuf[2] = (u32)(titleID >> 32);
+	cmdbuf[3] = len;
+	cmdbuf[4] = workbuf_size;
+	cmdbuf[5] = operation;
+	cmdbuf[6] = IPC_Desc_Buffer(len,IPC_BUFFER_R);
+	cmdbuf[7] = (u32)filepath16;
+	cmdbuf[8] = IPC_Desc_Buffer(workbuf_size,IPC_BUFFER_W);
+	cmdbuf[9] = (u32)workbuf;
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_ImportTwlBackup(Handle filehandle, u8 operation, void* buffer, u32 size)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x1C,2,4); // 0x001C0084
+	cmdbuf[1] = size;
+	cmdbuf[2] = operation;
+	cmdbuf[3] = IPC_Desc_MoveHandles(1);
+	cmdbuf[4] = filehandle;
+	cmdbuf[5] = IPC_Desc_Buffer(size,IPC_BUFFER_W);
+	cmdbuf[6] = (u32)buffer;
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_ReadTwlBackupInfo(Handle filehandle, void* outinfo, u32 outinfo_size, void* workbuf, u32 workbuf_size, void* banner, u32 banner_size)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x1E,3,8); // 0x001E00C8
+	cmdbuf[1] = outinfo_size;
+	cmdbuf[2] = workbuf_size;
+	cmdbuf[3] = banner_size;
+	cmdbuf[4] = IPC_Desc_MoveHandles(1);
+	cmdbuf[5] = filehandle;
+	cmdbuf[6] = IPC_Desc_Buffer(outinfo_size,IPC_BUFFER_W);
+	cmdbuf[7] = (u32)outinfo;
+	cmdbuf[8] = IPC_Desc_Buffer(workbuf_size,IPC_BUFFER_W);
+	cmdbuf[9] = (u32)workbuf;
+	cmdbuf[10] = IPC_Desc_Buffer(banner_size,IPC_BUFFER_W);
+	cmdbuf[11] = (u32)banner;
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
 	return (Result)cmdbuf[1];
 }
 
@@ -224,7 +297,7 @@ Result AM_StartCiaInstall(FS_MediaType mediatype, Handle *ciaHandle)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(ciaHandle) *ciaHandle = cmdbuf[3];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -238,7 +311,7 @@ Result AM_StartDlpChildCiaInstall(Handle *ciaHandle)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(ciaHandle) *ciaHandle = cmdbuf[3];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -264,6 +337,37 @@ Result AM_FinishCiaInstall(Handle ciaHandle)
 	cmdbuf[0] = IPC_MakeHeader(0x405,0,2); // 0x04050002
 	cmdbuf[1] = IPC_Desc_MoveHandles(1);
 	cmdbuf[2] = ciaHandle;
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_FinishCiaInstallWithoutCommit(Handle ciaHandle)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x406,0,2); // 0x04060002
+	cmdbuf[1] = IPC_Desc_MoveHandles(1);
+	cmdbuf[2] = ciaHandle;
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_CommitImportPrograms(FS_MediaType mediaType, u32 titleCount, bool temp, const u64* titleIds)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x407,3,2); // 0x040700C2
+	cmdbuf[1] = mediaType;
+	cmdbuf[2] = titleCount;
+	cmdbuf[3] = temp ? 1 : 0;
+	cmdbuf[4] = IPC_Desc_Buffer(titleCount * 8, IPC_BUFFER_R);
+	cmdbuf[5] = (u32)titleIds;
 
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
@@ -385,12 +489,12 @@ Result AM_GetTitleProductCode(FS_MediaType mediatype, u64 titleId, char *product
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
-	
+
 	cmdbuf[0] = IPC_MakeHeader(0x5,3,0); // 0x000500C0
 	cmdbuf[1] = mediatype;
 	cmdbuf[2] = titleId & 0xffffffff;
 	cmdbuf[3] = (u32)(titleId >> 32);
-	
+
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	// The product code string can use the full 16 bytes without NULL terminator
@@ -403,12 +507,12 @@ Result AM_GetTitleExtDataId(u64 *extDataId, FS_MediaType mediatype, u64 titleId)
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
-	
+
 	cmdbuf[0] = IPC_MakeHeader(0x6,3,0); // 0x000600C0
 	cmdbuf[1] = mediatype;
 	cmdbuf[2] = titleId & 0xffffffff;
 	cmdbuf[3] = (u32)(titleId >> 32);
-	
+
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(extDataId) *extDataId = (u64)cmdbuf[2] | ((u64)cmdbuf[3] << 32);
@@ -420,7 +524,7 @@ Result AM_GetCiaFileInfo(FS_MediaType mediatype, AM_TitleEntry *titleEntry, Hand
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
-	
+
 	cmdbuf[0] = IPC_MakeHeader(0x408,1,2); // 0x04080042
 	cmdbuf[1] = mediatype;
 	cmdbuf[2] = IPC_Desc_SharedHandles(1);
@@ -521,7 +625,7 @@ Result AM_GetCiaMetaSection(void *meta, u32 size, Handle fileHandle)
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
-	
+
 	cmdbuf[0] = IPC_MakeHeader(0x414,1,4); // 0x04140044
 	cmdbuf[1] = size;
 	cmdbuf[2] = IPC_Desc_SharedHandles(1);
@@ -560,7 +664,7 @@ Result AM_QueryAvailableExternalTitleDatabase(bool* available)
 	if(R_FAILED(ret = (Result)cmdbuf[1])) return ret;
 
 	// Only accept this if the command was a success
-	if(available) *available = cmdbuf[2];
+	if(available) *available = cmdbuf[2] & 0xFF;
 
 	return ret;
 }
@@ -575,7 +679,7 @@ Result AM_InstallTicketBegin(Handle *ticketHandle)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(ticketHandle) *ticketHandle = cmdbuf[3];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -623,7 +727,7 @@ Result AM_InstallTitleBegin(FS_MediaType mediaType, u64 titleId, bool unk)
 	return (Result)cmdbuf[1];
 }
 
-Result AM_InstallTitleStop()
+Result AM_InstallTitleStop(void)
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
@@ -651,7 +755,7 @@ Result AM_InstallTitleResume(FS_MediaType mediaType, u64 titleId)
 }
 
 
-Result AM_InstallTitleAbort()
+Result AM_InstallTitleAbort(void)
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
@@ -663,7 +767,7 @@ Result AM_InstallTitleAbort()
 	return (Result)cmdbuf[1];
 }
 
-Result AM_InstallTitleFinish()
+Result AM_InstallTitleFinish(void)
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
@@ -675,7 +779,7 @@ Result AM_InstallTitleFinish()
 	return (Result)cmdbuf[1];
 }
 
-Result AM_CommitImportTitles(FS_MediaType mediaType, u32 titleCount, bool temp, u64* titleIds)
+Result AM_CommitImportTitles(FS_MediaType mediaType, u32 titleCount, bool temp, const u64* titleIds)
 {
 	Result ret = 0;
 	u32 *cmdbuf = getThreadCommandBuffer();
@@ -702,7 +806,7 @@ Result AM_InstallTmdBegin(Handle *tmdHandle)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(tmdHandle) *tmdHandle = cmdbuf[3];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -761,7 +865,7 @@ Result AM_InstallContentBegin(Handle *contentHandle, u16 index)
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 
 	if(contentHandle) *contentHandle = cmdbuf[3];
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -791,7 +895,7 @@ Result AM_InstallContentResume(Handle *contentHandle, u64* resumeOffset, u16 ind
 
 	if(contentHandle) *contentHandle = cmdbuf[5];
 	if(resumeOffset) *resumeOffset = cmdbuf[2] | ((u64)cmdbuf[3] << 32);
-	
+
 	return (Result)cmdbuf[1];
 }
 
@@ -873,6 +977,55 @@ Result AM_CommitImportTitlesAndUpdateFirmwareAuto(FS_MediaType mediaType, u32 ti
 	cmdbuf[3] = temp ? 1 : 0;
 	cmdbuf[4] = IPC_Desc_Buffer(titleCount * 8, IPC_BUFFER_R);
 	cmdbuf[5] = (u32)titleIds;
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_DeleteAllDemoLaunchInfos(void)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x827,0,0); // 0x8270000
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_DeleteAllTemporaryTitles(void)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x16,0,0); // 0x160000
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_DeleteAllExpiredTitles(FS_MediaType mediatype)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x1F,1,0); // 0x1F0040
+	cmdbuf[1] = mediatype;
+
+	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
+
+	return (Result)cmdbuf[1];
+}
+
+Result AM_DeleteAllTwlTitles(void)
+{
+	Result ret = 0;
+	u32 *cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x1D,0,0); // 0x1D0000
 
 	if(R_FAILED(ret = svcSendSyncRequest(amHandle))) return ret;
 

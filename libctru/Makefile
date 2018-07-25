@@ -9,7 +9,7 @@ endif
 include $(DEVKITARM)/base_rules
 
 export LIBCTRU_MAJOR	:= 1
-export LIBCTRU_MINOR	:= 1
+export LIBCTRU_MINOR	:= 5
 export LIBCTRU_PATCH	:= 0
 
 
@@ -23,7 +23,7 @@ VERSION	:=	$(LIBCTRU_MAJOR).$(LIBCTRU_MINOR).$(LIBCTRU_PATCH)
 # INCLUDES is a list of directories containing header files
 #---------------------------------------------------------------------------------
 TARGET		:=	ctru
-BUILD		:=	build
+#BUILD		:=	build
 SOURCES		:=	source \
 			source/allocator \
 			source/gpu \
@@ -31,6 +31,7 @@ SOURCES		:=	source \
 			source/services \
 			source/services/soc \
 			source/applets \
+			source/util/decompress \
 			source/util/rbtree \
 			source/util/utf \
 			source/system
@@ -43,10 +44,11 @@ INCLUDES	:=	include
 #---------------------------------------------------------------------------------
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
-CFLAGS	:=	-g -Wall -Werror -O0 -mword-relocations \
-			-ffunction-sections -fno-strict-aliasing \
-			-fomit-frame-pointer \
-			$(ARCH)
+CFLAGS	:=	-g -Wall -Werror -mword-relocations \
+			-ffunction-sections \
+			-fdata-sections \
+			$(ARCH) \
+			$(BUILD_CFLAGS)
 
 CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS
 
@@ -67,12 +69,8 @@ LIBDIRS	:=
 ifneq ($(BUILD),$(notdir $(CURDIR)))
 #---------------------------------------------------------------------------------
 
-export OUTPUT	:=	$(CURDIR)/lib/lib$(TARGET).a
-
 export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
 			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
-
-export DEPSDIR	:=	$(CURDIR)/$(BUILD)
 
 CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
 CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
@@ -93,45 +91,61 @@ else
 endif
 #---------------------------------------------------------------------------------
 
-export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
-			$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES))
+export OFILES_SRC	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+
+export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
+
+export OFILES	:=	$(OFILES_BIN) $(OFILES_SRC)
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD)
+			-I.
 
-.PHONY: $(BUILD) clean all
+.PHONY: clean all
 
 #---------------------------------------------------------------------------------
-all: $(BUILD)
+all: lib/libctru.a lib/libctrud.a
 
 dist-bin: all
 	@tar --exclude=*~ -cjf libctru-$(VERSION).tar.bz2 include lib default_icon.png
 
 dist-src:
-	@tar --exclude=*~ -cjf libctru-src-$(VERSION).tar.bz2 include source data Makefile Doxyfile Doxyfile.internal default_icon.png
+	@tar --exclude=*~ -cjf libctru-src-$(VERSION).tar.bz2 include source data Makefile Doxyfile default_icon.png
 
 dist: dist-src dist-bin
 
 install: dist-bin
-	mkdir -p $(DEVKITPRO)/libctru
-	bzip2 -cd libctru-$(VERSION).tar.bz2 | tar -xf - -C $(DEVKITPRO)/libctru
-
-dox:
-	@doxygen Doxyfile
-	@doxygen Doxyfile.internal
+	mkdir -p $(DESTDIR)$(DEVKITPRO)/libctru
+	bzip2 -cd libctru-$(VERSION).tar.bz2 | tar -xf - -C $(DESTDIR)$(DEVKITPRO)/libctru
 
 lib:
 	@[ -d $@ ] || mkdir -p $@
 
-$(BUILD): lib
+release:
 	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+debug:
+	@[ -d $@ ] || mkdir -p $@
+
+lib/libctru.a : lib release $(SOURCES) $(INCLUDES)
+	@$(MAKE) BUILD=release OUTPUT=$(CURDIR)/$@ \
+	BUILD_CFLAGS="-DNDEBUG=1 -O2 -fomit-frame-pointer" \
+	DEPSDIR=$(CURDIR)/release \
+	--no-print-directory -C release \
+	-f $(CURDIR)/Makefile
+
+lib/libctrud.a : lib debug $(SOURCES) $(INCLUDES)
+	@$(MAKE) BUILD=debug OUTPUT=$(CURDIR)/$@ \
+	BUILD_CFLAGS="-DDEBUG=1 -Og" \
+	DEPSDIR=$(CURDIR)/debug \
+	--no-print-directory -C debug \
+	-f $(CURDIR)/Makefile
 
 #---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) lib docs internal_docs
+	@rm -fr release debug lib docs
 
 #---------------------------------------------------------------------------------
 else
@@ -143,8 +157,10 @@ DEPENDS	:=	$(OFILES:.o=.d)
 #---------------------------------------------------------------------------------
 $(OUTPUT)	:	$(OFILES)
 
+$(OFILES_SRC) : $(HFILES_BIN)
+
 #---------------------------------------------------------------------------------
-%.bin.o	:	%.bin
+%.bin.o	%_bin.h :	%.bin
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)

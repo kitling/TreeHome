@@ -55,7 +55,7 @@ Result udsInit(size_t sharedmem_size, const char *username)
 	if(R_SUCCEEDED(ret))
 	{
 		ndm_state = 1;
-		ret = ndmuEnterExclusiveState(EXCLUSIVE_STATE_LOCAL_COMMUNICATIONS);
+		ret = NDMU_EnterExclusiveState(EXCLUSIVE_STATE_LOCAL_COMMUNICATIONS);
 		if(R_SUCCEEDED(ret))
 		{
 			ndm_state = 2;
@@ -80,7 +80,7 @@ Result udsInit(size_t sharedmem_size, const char *username)
 	{
 		if(ndm_state)
 		{
-			if(ndm_state==2)ndmuLeaveExclusiveState();
+			if(ndm_state==2)NDMU_LeaveExclusiveState();
 			ndmuExit();
 		}
 
@@ -111,7 +111,7 @@ void udsExit(void)
 	svcCloseHandle(__uds_connectionstatus_event);
 	__uds_connectionstatus_event = 0;
 
-	ndmuLeaveExclusiveState();
+	NDMU_LeaveExclusiveState();
 	ndmuExit();
 }
 
@@ -335,7 +335,7 @@ Result udsEjectClient(u16 NetworkNodeID)
 	return cmdbuf[1];
 }
 
-Result udsEjectSpectator()
+Result udsEjectSpectator(void)
 {
 	u32* cmdbuf=getThreadCommandBuffer();
 
@@ -501,13 +501,10 @@ Result udsScanBeacons(void *buf, size_t maxsize, udsNetworkScanInfo **networks, 
 		{
 			networks_ptr = malloc(sizeof(udsNetworkScanInfo) * hdr->total_entries);
 			if(networks_ptr == NULL)return -1;
+			if(total_networks)*total_networks = hdr->total_entries;
 			memset(networks_ptr, 0, sizeof(udsNetworkScanInfo) * hdr->total_entries);
 			*networks = networks_ptr;
-		}
-		if(total_networks)*total_networks = hdr->total_entries;
 
-		if(networks)
-		{
 			for(entpos=0; entpos<hdr->total_entries; entpos++)
 			{
 				if(curpos >= hdr->size)

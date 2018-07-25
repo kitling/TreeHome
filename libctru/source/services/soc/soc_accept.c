@@ -8,7 +8,6 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 	int ret = 0;
 	int tmp_addrlen = 0x1c;
 	int fd, dev;
-	__handle *handle;
 	u32 *cmdbuf = getThreadCommandBuffer();
 	u8 tmpaddr[0x1c];
 	u32 saved_threadstorage[2];
@@ -25,15 +24,8 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 		return -1;
 	}
 
-	fd = __alloc_handle(sizeof(__handle) + sizeof(Handle));
-	if(fd < 0) {
-		errno = ENOMEM;
-		return -1;
-	}
-
-	handle = __get_handle(fd);
-	handle->device = dev;
-	handle->fileStruct = ((void *)handle) + sizeof(__handle);
+	fd = __alloc_handle(dev);
+	if(fd < 0) return fd;
 
 	memset(tmpaddr, 0, 0x1c);
 
@@ -50,10 +42,10 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 	staticbufs[1] = (u32)tmpaddr;
 
 	ret = svcSendSyncRequest(SOCU_handle);
-	
+
 	staticbufs[0] = saved_threadstorage[0];
 	staticbufs[1] = saved_threadstorage[1];
-	
+
 	if(ret != 0) {
 		__release_handle(fd);
 		errno = SYNC_ERROR;
@@ -79,7 +71,10 @@ int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 		return -1;
 	}
 	else
+	{
+		__handle *handle = __get_handle(fd);
 		*(Handle*)handle->fileStruct = ret;
+	}
 
 	return fd;
 }

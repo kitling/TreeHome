@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <3ds/types.h>
+#include <3ds/svc.h>
 #include <3ds/gpu/gpu.h>
 #include <3ds/gpu/gx.h>
 #include <3ds/gpu/shbin.h>
@@ -12,25 +13,6 @@
 u32* gpuCmdBuf;
 u32 gpuCmdBufSize;
 u32 gpuCmdBufOffset;
-
-void GPUCMD_SetBuffer(u32* adr, u32 size, u32 offset)
-{
-	gpuCmdBuf=adr;
-	gpuCmdBufSize=size;
-	gpuCmdBufOffset=offset;
-}
-
-void GPUCMD_SetBufferOffset(u32 offset)
-{
-	gpuCmdBufOffset=offset;
-}
-
-void GPUCMD_GetBuffer(u32** adr, u32* size, u32* offset)
-{
-	if(adr)*adr=gpuCmdBuf;
-	if(size)*size=gpuCmdBufSize;
-	if(offset)*offset=gpuCmdBufOffset;
-}
 
 void GPUCMD_AddRawCommands(const u32* cmd, u32 size)
 {
@@ -40,53 +22,41 @@ void GPUCMD_AddRawCommands(const u32* cmd, u32 size)
 	gpuCmdBufOffset+=size;
 }
 
-void GPUCMD_Run(void)
-{
-	GX_ProcessCommandList(gpuCmdBuf, gpuCmdBufOffset*4, GX_CMDLIST_FLUSH);
-}
-
-extern u32 __ctru_linear_heap;
-extern u32 __ctru_linear_heap_size;
-
-void GPUCMD_FlushAndRun(void)
-{
-	//take advantage of GX_FlushCacheRegions to flush gsp heap
-	GX_FlushCacheRegions(gpuCmdBuf, gpuCmdBufOffset*4, (u32 *) __ctru_linear_heap, __ctru_linear_heap_size, NULL, 0);
-	GX_ProcessCommandList(gpuCmdBuf, gpuCmdBufOffset*4, 0x0);
-}
-
 void GPUCMD_Add(u32 header, const u32* param, u32 paramlength)
 {
-	u32 zero=0x0;
-
-	if(!param || !paramlength)
-	{
-		paramlength=1;
-		param=&zero;
-	}
-
-	if(!gpuCmdBuf || gpuCmdBufOffset+paramlength+1>gpuCmdBufSize)return;
+	if(!paramlength)paramlength=1;
+	if(!gpuCmdBuf || gpuCmdBufOffset+paramlength+1>gpuCmdBufSize)
+		svcBreak(USERBREAK_PANIC); // Shouldn't happen.
 
 	paramlength--;
 	header|=(paramlength&0x7ff)<<20;
 
-	gpuCmdBuf[gpuCmdBufOffset]=param[0];
+	gpuCmdBuf[gpuCmdBufOffset]=param ? param[0] : 0;
 	gpuCmdBuf[gpuCmdBufOffset+1]=header;
 
-	if(paramlength)memcpy(&gpuCmdBuf[gpuCmdBufOffset+2], &param[1], paramlength*4);
+	if(paramlength)
+	{
+		if(param)memcpy(&gpuCmdBuf[gpuCmdBufOffset+2], &param[1], paramlength*4);
+		else     memset(&gpuCmdBuf[gpuCmdBufOffset+2], 0, paramlength*4);
+	}
 
 	gpuCmdBufOffset+=paramlength+2;
 
 	if(paramlength&1)gpuCmdBuf[gpuCmdBufOffset++]=0x00000000; //alignment
 }
 
-void GPUCMD_Finalize(void)
+void GPUCMD_Split(u32** addr, u32* size)
 {
-	GPUCMD_AddMaskedWrite(GPUREG_PRIMITIVE_CONFIG, 0x8, 0x00000000);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_INVALIDATE, 0x00000001);
 	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678);
-	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678); //not the cleanest way of guaranteeing 0x10-byte size but whatever good enough for now
+	if (gpuCmdBufOffset & 3)
+		GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678); // 16-byte align the buffer
+
+	if (addr) *addr = gpuCmdBuf;
+	if (size) *size = gpuCmdBufOffset;
+
+	gpuCmdBuf       += gpuCmdBufOffset;
+	gpuCmdBufSize   -= gpuCmdBufOffset;
+	gpuCmdBufOffset  = 0;
 }
 
 static inline u32 floatrawbits(float f)

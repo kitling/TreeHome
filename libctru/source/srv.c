@@ -11,8 +11,19 @@
 #include <3ds/synchronization.h>
 #include <3ds/env.h>
 
+#include <3ds/os.h>
+#include <3ds/services/srvpm.h>
+
+#include "internal.h"
+
 static Handle srvHandle;
 static int srvRefCount;
+
+static bool srvGetBlockingPolicy(void)
+{
+	ThreadVars *tv = getThreadVars();
+	return tv->magic == THREADVARS_MAGIC && tv->srv_blocking_policy;
+}
 
 Result srvInit(void)
 {
@@ -20,7 +31,10 @@ Result srvInit(void)
 
 	if (AtomicPostIncrement(&srvRefCount)) return 0;
 
-	rc = svcConnectToPort(&srvHandle, "srv:");
+	if(osGetFirmVersion() < SYSTEM_VERSION(2, 39, 4) && *srvPmGetSessionHandle() != 0)
+		rc = svcDuplicateHandle(&srvHandle, *srvPmGetSessionHandle()); // Prior to system version 7.0 srv:pm was a superset of srv:
+	else
+		rc = svcConnectToPort(&srvHandle, "srv:");
 	if (R_FAILED(rc)) goto end;
 
 	rc = srvRegisterClient();
@@ -35,6 +49,12 @@ void srvExit(void)
 
 	if (srvHandle != 0) svcCloseHandle(srvHandle);
 	srvHandle = 0;
+}
+
+void srvSetBlockingPolicy(bool nonBlocking)
+{
+	ThreadVars *tv = getThreadVars();
+	tv->srv_blocking_policy = nonBlocking;
 }
 
 Handle *srvGetSessionHandle(void)
@@ -90,7 +110,7 @@ Result srvRegisterService(Handle* out, const char* name, int maxSessions)
 
 	cmdbuf[0] = IPC_MakeHeader(0x3,4,0); // 0x30100
 	strncpy((char*) &cmdbuf[1], name,8);
-	cmdbuf[3] = strlen(name);
+	cmdbuf[3] = strnlen(name, 8);
 	cmdbuf[4] = maxSessions;
 
 	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
@@ -107,7 +127,7 @@ Result srvUnregisterService(const char* name)
 
 	cmdbuf[0] = IPC_MakeHeader(0x4,3,0); // 0x400C0
 	strncpy((char*) &cmdbuf[1], name,8);
-	cmdbuf[3] = strlen(name);
+	cmdbuf[3] = strnlen(name, 8);
 
 	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
 
@@ -121,8 +141,8 @@ Result srvGetServiceHandleDirect(Handle* out, const char* name)
 
 	cmdbuf[0] = IPC_MakeHeader(0x5,4,0); // 0x50100
 	strncpy((char*) &cmdbuf[1], name,8);
-	cmdbuf[3] = strlen(name);
-	cmdbuf[4] = 0x0;
+	cmdbuf[3] = strnlen(name, 8);
+	cmdbuf[4] = (u32)srvGetBlockingPolicy(); // per-thread setting, default is blocking
 
 	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
 
@@ -138,8 +158,8 @@ Result srvRegisterPort(const char* name, Handle clientHandle)
 
 	cmdbuf[0] = IPC_MakeHeader(0x6,3,2); // 0x600C2
 	strncpy((char*) &cmdbuf[1], name,8);
-	cmdbuf[3] = strlen(name);
-	cmdbuf[4] = IPC_Desc_SharedHandles(0);
+	cmdbuf[3] = strnlen(name, 8);
+	cmdbuf[4] = IPC_Desc_SharedHandles(1);
 	cmdbuf[5] = clientHandle;
 
 	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
@@ -154,7 +174,7 @@ Result srvUnregisterPort(const char* name)
 
 	cmdbuf[0] = IPC_MakeHeader(0x7,3,0); // 0x700C0
 	strncpy((char*) &cmdbuf[1], name,8);
-	cmdbuf[3] = strlen(name);
+	cmdbuf[3] = strnlen(name, 8);
 
 	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
 
@@ -168,13 +188,27 @@ Result srvGetPort(Handle* out, const char* name)
 
 	cmdbuf[0] = IPC_MakeHeader(0x8,4,0); // 0x80100
 	strncpy((char*) &cmdbuf[1], name,8);
-	cmdbuf[3] = strlen(name);
+	cmdbuf[3] = strnlen(name, 8);
 	cmdbuf[4] = 0x0;
 
 	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
 
 	if(out) *out = cmdbuf[3];
 
+	return cmdbuf[1];
+}
+
+Result srvWaitForPortRegistered(const char* name)
+{
+	Result rc = 0;
+	u32* cmdbuf = getThreadCommandBuffer();
+
+	cmdbuf[0] = IPC_MakeHeader(0x8,4,0); // 0x80100
+	strncpy((char*) &cmdbuf[1], name,8);
+	cmdbuf[3] = strnlen(name, 8);
+	cmdbuf[4] = 0x1;
+
+	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
 	return cmdbuf[1];
 }
 
@@ -255,11 +289,29 @@ Result srvIsServiceRegistered(bool* registeredOut, const char* name)
 
 	cmdbuf[0] = IPC_MakeHeader(0xE,3,0); // 0xE00C0
 	strncpy((char*) &cmdbuf[1], name,8);
-	cmdbuf[3] = strlen(name);
+	cmdbuf[3] = strnlen(name, 8);
 
 	if(R_FAILED(rc = svcSendSyncRequest(srvHandle)))return rc;
 
 	if(registeredOut) *registeredOut = cmdbuf[2] & 0xFF;
 
 	return cmdbuf[1];
+}
+
+Result srvIsPortRegistered(bool* registeredOut, const char* name)
+{
+	Handle port;
+	Result rc = srvGetPort(&port, name);
+
+	if(rc == 0xD8801BFA)
+	{
+		if(registeredOut) *registeredOut = false;
+		return 0;
+	}
+	else if(R_SUCCEEDED(rc))
+	{
+		if(registeredOut) *registeredOut = true;
+		svcCloseHandle(port);
+	}
+	return rc;
 }

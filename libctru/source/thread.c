@@ -33,6 +33,7 @@ static void _thread_begin(void* arg)
 	tv->reent = &t->reent;
 	tv->thread_ptr = t;
 	tv->tls_tp = (u8*)t->stacktop-8; // ARM ELF TLS ABI mandates an 8-byte header
+	tv->srv_blocking_policy = false;
 	t->ep(t->arg);
 	threadExit(0);
 }
@@ -105,6 +106,19 @@ Result threadJoin(Thread thread, u64 timeout_ns)
 {
 	if (!thread || thread->finished) return 0;
 	return svcWaitSynchronization(thread->handle, timeout_ns);
+}
+
+void threadDetach(Thread thread)
+{
+	if (!thread || thread->detached)
+		return;
+	if (thread->finished)
+	{
+		threadFree(thread);
+		return;
+	}
+	thread->detached = true;
+	return;
 }
 
 Thread threadGetCurrent(void)
