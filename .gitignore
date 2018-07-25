@@ -32,6 +32,7 @@
 *.dSYM/
 /obj/
 /build/
+/out/
 /.cproject
 /.project
 /.settings/
