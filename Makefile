@@ -191,9 +191,11 @@ $(OUTPUT).cia: $(OUTPUT).elf $(BUILD)/banner.bnr $(BUILD)/icon.icn
 	@$(MAKEROM) -f cia -o "$(OUTPUT).cia" -target t -exefslogo $(MAKEROM_ARGS)
 
 #---------------------------------------------------------------------------------
-$(OUTPUT).elf:
+$(OUTPUT).elf: FORCE
 	@mkdir -p $(BUILD) $(GFXBUILD) $(OUTDIR)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
+
+FORCE:
 
 #---------------------------------------------------------------------------------
 $(BUILD)/banner.bnr:
