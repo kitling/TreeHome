@@ -253,8 +253,6 @@ _fail:
 	return ret;
 }
 
-extern int printk(const char *format, ...);
-
 // ADDED FOR TREEHOME
 Result aptInitApplet(int level, int attr, int idk)
 {
@@ -689,7 +687,6 @@ Result APT_GetLockHandleO(u16 flags, Handle* lockHandle, APT_AppletAttr* attr, A
 	if (R_SUCCEEDED(ret))
 	{
 		*lockHandle = cmdbuf[5];
-		printk("APT_GetLockHandleO attr: %x state: %x", cmdbuf[2], cmdbuf[3]);
 		if(attr) *attr = cmdbuf[2];
 		if(state) *state = cmdbuf[3];
 	}
