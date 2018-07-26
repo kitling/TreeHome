@@ -1,0 +1,4 @@
+%rename startfile                old_startfile
+
+*startfile:
+crti%O%s crtbegin%O%s

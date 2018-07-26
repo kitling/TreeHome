@@ -258,13 +258,6 @@ Result APT_StoreSysMenuArg(SysMenuArg* buf)
     return R_SUCCEEDED(ret) ? cmdbuf[1] : ret;
 }
 
-// May need to completely replace crt0 to do this properly...
-extern u32 __apt_appid;
-extern void *__service_ptr;
-
-// not special, but following the scheme.
-u32 __apt_attr;
-
 void __appInit(void)
 {
     Result res = 0;
@@ -278,10 +271,9 @@ void __appInit(void)
     if((res = psInit()) < 0) err(3,res);
     //if((res = aptInit(0x300, 1, 0, 0)) < 0) err(4,res);
     //aptExit();
-    __apt_appid = APPID_HOMEMENU; // was set to 0x103 -- TestMenu?
-    __service_ptr = NULL; // envIsHomebrew should be 0
-    __apt_attr = aptMakeAppletAttr(APTPOS_SYS, false, false) | 0x20000000;
-    if((res = aptInitApplet(0, __apt_attr, 1)) < 0) err(5,res);
+
+    u32 aptattr = aptMakeAppletAttr(APTPOS_SYS, false, false) | 0x20000000;
+    if((res = aptInitApplet(0 /*level*/, aptattr, 1 /*idk*/)) < 0) err(5,res);
 
     if((res = NS_LaunchTitle(0x0004013000001C02, 0, NULL)) < 0) err(10,res);//== 0xC8A12402) die();
 
