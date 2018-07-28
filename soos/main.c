@@ -85,8 +85,6 @@ static SignalHook srvRootHook;
 
 static SignalHook aptRootHook;
 
-static Handle nwmHandle = 0;
-
 void srvLock()
 {
     Handle currhandle = *(((u32*)getThreadLocalStorage()) + 1);
@@ -135,26 +133,6 @@ void srvMainLoop(void* param)
         srvUnlock();
     }
     if(*running) *(u32*)0x00100100 = ret;
-}
-
-Result nwmInit()
-{
-    return srvGetServiceHandle(&nwmHandle, "nwm::EXT");
-}
-
-Result nwmDisable(u8 flag)
-{
-    u32* ipc = getThreadCommandBuffer();
-    ipc[0] = 0x80040;
-    ipc[1] = flag != 0;
-    Result ret = svcSendSyncRequest(nwmHandle);
-    if(ret < 0) return ret;
-    return ipc[1];
-}
-
-Result nwmExit()
-{
-    return svcCloseHandle(nwmHandle);
 }
 
 void aptHookSignal(u32 nid, SignalHandler func)
@@ -363,11 +341,11 @@ int main()
 
 
   //puts("Initializing nwm");
-  //Result ret = nwmInit();
-  //printf("NWM::Init %08X\n", ret);
+  //Result ret = nwmExtInit();
+  //printf("nwmExt::Init %08X\n", ret);
   //puts("Initializing WiFi");
-  //ret = nwmDisable(0);
-  //printf("NWM::Disable %08X\n", ret);
+  //ret = NWMEXT_ControlWirelessEnabled(1);
+  //printf("nwmExt::ControlWirelessEnabled %08X\n", ret);
 
   // =====[RUN]=====
 
