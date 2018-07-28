@@ -1,0 +1,278 @@
+diff -rub ../ctrulib/libctru/include/3ds/services/apt.h libctru/include/3ds/services/apt.h
+--- ../ctrulib/libctru/include/3ds/services/apt.h	2018-07-27 21:43:00.470711933 -0700
++++ libctru/include/3ds/services/apt.h	2018-07-27 21:41:29.670245065 -0700
+@@ -136,6 +136,7 @@
+ 
+ /// Initializes APT.
+ Result aptInit(void);
++Result aptInitApplet(int level, int attr, int idk);
+ 
+ /// Exits APT.
+ void aptExit(void);
+@@ -208,6 +209,7 @@
+  * @param lockHandle Pointer to output the lock handle to.
+  */
+ Result APT_GetLockHandle(u16 flags, Handle* lockHandle);
++Result APT_GetLockHandleO(u16 flags, Handle* lockHandle, APT_AppletAttr* attr, APT_AppletPos* state);
+ 
+ /**
+  * @brief Initializes an application's registration with APT.
+Only in ../ctrulib/libctru/: libctru-1.1.0.tar.bz2
+diff -rub ../ctrulib/libctru/source/services/apt.c libctru/source/services/apt.c
+--- ../ctrulib/libctru/source/services/apt.c	2018-07-27 21:43:00.484045217 -0700
++++ libctru/source/services/apt.c	2018-07-27 21:41:29.763579259 -0700
+@@ -45,6 +45,12 @@
+ static u64 aptChainloadTid;
+ static u8 aptChainloadMediatype;
+ 
++// ADDED FOR TREEHOME
++static APT_AppletAttr aptattr;
++static int aptLevel = 0;
++static APT_AppletPos aptpos;
++// END OF ADDED FOR TREEHOME
++
+ typedef enum
+ {
+ 	TR_ENABLE     = 0x62,
+@@ -76,10 +82,10 @@
+ 	return (envGetSystemRunFlags() & RUNFLAG_APTREINIT) != 0;
+ }
+ 
+-static bool aptIsChainload(void)
+-{
+-	return (envGetSystemRunFlags() & RUNFLAG_APTCHAINLOAD) != 0;
+-}
++// static bool aptIsChainload(void)
++// {
++// 	return (envGetSystemRunFlags() & RUNFLAG_APTCHAINLOAD) != 0;
++// }
+ 
+ static bool aptIsCrippled(void)
+ {
+@@ -89,20 +95,20 @@
+ 
+ static Result aptGetServiceHandle(Handle* aptuHandle)
+ {
+-	static const char* serviceName;
++	// static const char* serviceName;
+ 	static const char* const serviceNameTable[3] = {"APT:S", "APT:A", "APT:U"};
+ 
+-	if (serviceName)
+-		return srvGetServiceHandleDirect(aptuHandle, serviceName);
++	// if (serviceName)
++	// 	return srvGetServiceHandleDirect(aptuHandle, serviceName);
+ 
+-	Result ret;
++	Result ret = -1;
+ 	int i;
+-	for (i = 0; i < 3; i ++)
++	for (i = aptLevel; i < 3; i ++)
+ 	{
+ 		ret = srvGetServiceHandleDirect(aptuHandle, serviceNameTable[i]);
+ 		if (R_SUCCEEDED(ret))
+ 		{
+-			serviceName = serviceNameTable[i];
++			// serviceName = serviceNameTable[i];
+ 			break;
+ 		}
+ 	}
+@@ -247,6 +253,82 @@
+ 	return ret;
+ }
+ 
++// ADDED FOR TREEHOME
++Result aptInitApplet(int level, int attr, int idk)
++{
++	Result ret=0;
++
++	if (AtomicPostIncrement(&aptRefCount)) return 0;
++	// if(aptLockHandle) return 0xE0A0CFF9; // seems off, so just commenting it.
++
++	aptLevel = level;
++
++	// Retrieve APT lock
++	ret = APT_GetLockHandleO(0x0, &aptLockHandle, &aptattr, &aptpos);
++	if (R_FAILED(ret)) goto _fail;
++	// if (aptIsCrippled()) return 0; // TreeHome removes this
++
++	// Initialize APT
++	//APT_AppletAttr attr = aptMakeAppletAttr(APTPOS_APP, false, false);
++	if (attr != 0xFFFFFFFF) aptattr = attr;
++	ret = APT_Initialize(envGetAptAppId(), aptattr, &aptEvents[1], &aptEvents[2]);
++	if (R_FAILED(ret)) goto _fail2;
++
++	if (idk & 1) { // dunno why this is in here...
++		// Enable APT
++		ret = APT_Enable(attr);
++		if (R_FAILED(ret)) goto _fail3;
++	}
++
++	// Create APT close event
++	ret = svcCreateEvent(&aptEvents[0], RESET_STICKY);
++	if (R_FAILED(ret)) goto _fail3;
++
++	// Initialize APT sleep event
++	LightEvent_Init(&aptSleepEvent, RESET_ONESHOT);
++
++	// Create APT event handler thread
++	aptEventHandlerThread = threadCreate(aptEventHandler, 0x0, APT_HANDLER_STACKSIZE, 0x31 /* 0xF */, -2, true);
++	if (!aptEventHandlerThread) goto _fail4;
++
++	// Get information about ourselves
++	APT_GetAppletInfo(envGetAptAppId(), &aptChainloadTid, &aptChainloadMediatype, NULL, NULL, NULL);
++
++	// Special handling for aptReinit (aka hax)
++	APT_Transition transition = TR_ENABLE;
++	/* // This shouldn't need to be commented out, but it is. *shrug*
++	if (aptIsReinit())
++	{
++		transition = TR_JUMPTOMENU;
++
++		// Clear out any pending parameters
++		bool success = false;
++		do
++			ret = APT_CancelParameter(APPID_NONE, envGetAptAppId(), &success);
++		while (success);
++
++		// APT thinks the application is suspended, so we need to tell it to unsuspend us.
++		APT_PrepareToJumpToApplication(false);
++		APT_JumpToApplication(NULL, 0, 0);
++	}
++	*/
++
++	// Wait for wakeup
++	if (!(attr & 0x27)) aptWaitForWakeUp(transition);
++	return 0;
++
++_fail4:
++	svcCloseHandle(aptEvents[0]);
++_fail3:
++	svcCloseHandle(aptEvents[1]);
++	svcCloseHandle(aptEvents[2]);
++_fail2:
++	svcCloseHandle(aptLockHandle);
++_fail:
++	AtomicDecrement(&aptRefCount);
++	return ret;
++}
++
+ bool aptIsSleepAllowed(void)
+ {
+ 	return (aptFlags & FLAG_ALLOWSLEEP) != 0;
+@@ -273,11 +355,12 @@
+ 	aptChainloadMediatype = mediatype;
+ }
+ 
+-static void aptExitProcess(void)
+-{
+-	APT_CloseApplication(NULL, 0, 0);
+-	svcExitProcess();
+-}
++// now unused
++// static void aptExitProcess(void)
++// {
++// 	APT_CloseApplication(NULL, 0, 0);
++// 	svcExitProcess();
++// }
+ 
+ void aptExit(void)
+ {
+@@ -285,39 +368,40 @@
+ 
+ 	bool closeAptLock = true;
+ 
+-	if (!aptIsCrippled())
+-	{
+-		bool exited = (aptFlags & FLAG_EXITED) != 0;
+-		if (exited || !aptIsReinit())
+-		{
+-			if (!exited && aptIsChainload())
+-			{
+-				u8 param[0x300] = {0};
+-				u8 hmac[0x20] = {0};
+-				APT_PrepareToDoApplicationJump(0, aptChainloadTid, aptChainloadMediatype);
+-				APT_DoApplicationJump(param, sizeof(param), hmac);
+-				while (aptMainLoop())
+-					svcSleepThread(25*1000*1000);
+-			}
+-
+-			APT_PrepareToCloseApplication(true);
+-
+-			extern void (*__system_retAddr)(void);
+-			__system_retAddr = aptExitProcess;
+-			closeAptLock = false;
+-			srvInit(); // Keep srv initialized
+-		} else
+-		{
++	// Not sure this all needs to be commented out, but.....
++	// if (!aptIsCrippled())
++	// {
++		// bool exited = (aptFlags & FLAG_EXITED) != 0;
++		// if (exited || !aptIsReinit())
++		// {
++		// 	if (!exited && aptIsChainload())
++		// 	{
++		// 		u8 param[0x300] = {0};
++		// 		u8 hmac[0x20] = {0};
++		// 		APT_PrepareToDoApplicationJump(0, aptChainloadTid, aptChainloadMediatype);
++		// 		APT_DoApplicationJump(param, sizeof(param), hmac);
++		// 		while (aptMainLoop())
++		// 			svcSleepThread(25*1000*1000);
++		// 	}
++		//
++		// 	APT_PrepareToCloseApplication(true);
++		//
++		// 	extern void (*__system_retAddr)(void);
++		// 	__system_retAddr = aptExitProcess;
++		// 	closeAptLock = false;
++		// 	srvInit(); // Keep srv initialized
++		// } else
++		// {
+ 			APT_Finalize(envGetAptAppId());
+ 			aptClearParamQueue();
+-		}
++		// }
+ 
+ 		svcSignalEvent(aptEvents[0]);
+ 		threadJoin(aptEventHandlerThread, U64_MAX);
+ 		int i;
+ 		for (i = 0; i < 3; i ++)
+ 			svcCloseHandle(aptEvents[i]);
+-	}
++	// }
+ 
+ 	if (closeAptLock)
+ 		svcCloseHandle(aptLockHandle);
+@@ -580,13 +664,32 @@
+ 
+ Result APT_GetLockHandle(u16 flags, Handle* lockHandle)
+ {
++	// u32 cmdbuf[16];
++	// cmdbuf[0]=IPC_MakeHeader(0x1,1,0); // 0x10040
++	// cmdbuf[1]=flags;
++	//
++	// Result ret = aptSendCommand(cmdbuf);
++	// if (R_SUCCEEDED(ret))
++	// 	*lockHandle = cmdbuf[5];
++	//
++	// return ret;
++
++	return APT_GetLockHandleO(flags, lockHandle, NULL, NULL);
++}
++
++Result APT_GetLockHandleO(u16 flags, Handle* lockHandle, APT_AppletAttr* attr, APT_AppletPos* state)
++{
+ 	u32 cmdbuf[16];
+ 	cmdbuf[0]=IPC_MakeHeader(0x1,1,0); // 0x10040
+ 	cmdbuf[1]=flags;
+ 
+ 	Result ret = aptSendCommand(cmdbuf);
+ 	if (R_SUCCEEDED(ret))
++	{
+ 		*lockHandle = cmdbuf[5];
++		if(attr) *attr = cmdbuf[2];
++		if(state) *state = cmdbuf[3];
++	}
+ 
+ 	return ret;
+ }

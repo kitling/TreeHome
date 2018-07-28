@@ -323,6 +323,12 @@ int main()
   //*(u32*)0x00100099 =  __ctru_linear_heap;
   consoleInit(GFX_BOTTOM, NULL);
 
+  // Print out a few things to sanity-check the environment.
+  puts("-- Checking environment --");
+  printf("isHomebrew: %s\n", envIsHomebrew() ? "true" : "false"); // false
+  printf("aptAppId: 0x%x\n", envGetAptAppId()); // should be 0x101/0x103
+  printf("systemRunFlags: 0x%x\n", envGetSystemRunFlags()); // 0?
+
   puts("Initializing SysMenu stuff");
 
   //res = APT_LoadSysMenuArg(&menuarg);
